@@ -1,0 +1,2 @@
+# BFTP
+BitFS Transfer Protocol
