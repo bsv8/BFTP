@@ -1,0 +1,392 @@
+package dealprod
+
+import (
+	"crypto/rand"
+	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+)
+
+type Service struct{ DB *sql.DB }
+
+const ProtoDemandAnnounce = "/bsv-transfer/demand/announce/1.0.0"
+
+type PublishDemandReq struct {
+	SeedHash            string   `json:"seed_hash"`
+	BuyerPeerID         string   `json:"buyer_peer_id"`
+	BuyerAddrs          []string `json:"buyer_addrs,omitempty"`
+	ChunkCount          uint32   `json:"chunk_count"`
+	ChargeAmountSatoshi uint64   `json:"charge_amount_satoshi,omitempty"`
+}
+type PublishDemandResp struct {
+	DemandID             string `json:"demand_id"`
+	Status               string `json:"status"`
+	ChargedAmountSatoshi uint64 `json:"charged_amount_satoshi,omitempty"`
+}
+
+type QuoteSubmitReq struct {
+	DemandID     string `json:"demand_id"`
+	SellerPeerID string `json:"seller_peer_id"`
+	SeedPrice    uint64 `json:"seed_price"`
+	ChunkPrice   uint64 `json:"chunk_price"`
+	ExpiresAt    int64  `json:"expires_at"`
+}
+type QuoteSubmitResp struct {
+	QuoteID string `json:"quote_id"`
+	Status  string `json:"status"`
+}
+
+type QuoteListReq struct {
+	DemandID string `json:"demand_id"`
+}
+type QuoteItem struct {
+	QuoteID      string `json:"quote_id"`
+	SellerPeerID string `json:"seller_peer_id"`
+	SeedPrice    uint64 `json:"seed_price"`
+	ChunkPrice   uint64 `json:"chunk_price"`
+	ExpiresAt    int64  `json:"expires_at"`
+}
+type QuoteListResp struct {
+	Quotes []QuoteItem `json:"quotes"`
+}
+
+type DemandAnnounceReq struct {
+	DemandID    string   `json:"demand_id"`
+	SeedHash    string   `json:"seed_hash"`
+	BuyerPeerID string   `json:"buyer_peer_id"`
+	BuyerAddrs  []string `json:"buyer_addrs"`
+	ChunkCount  uint32   `json:"chunk_count"`
+	Status      string   `json:"status"`
+}
+type DemandAnnounceResp struct {
+	Status string `json:"status"`
+}
+
+type DealAcceptReq struct {
+	DemandID           string `json:"demand_id"`
+	QuoteID            string `json:"quote_id"`
+	BuyerPeerID        string `json:"buyer_peer_id"`
+	ArbiterPeerID      string `json:"arbiter_peer_id"`
+	DirectSellerPeerID string `json:"direct_seller_peer_id,omitempty"`
+	DirectSeedPrice    uint64 `json:"direct_seed_price,omitempty"`
+	DirectChunkPrice   uint64 `json:"direct_chunk_price,omitempty"`
+	DirectExpiresAt    int64  `json:"direct_expires_at,omitempty"`
+}
+type DealAcceptResp struct {
+	DealID       string `json:"deal_id"`
+	SellerPeerID string `json:"seller_peer_id"`
+	ChunkPrice   uint64 `json:"chunk_price"`
+	Status       string `json:"status"`
+}
+
+type SessionOpenReq struct {
+	DealID string `json:"deal_id"`
+}
+type SessionOpenResp struct {
+	SessionID string `json:"session_id"`
+	Status    string `json:"status"`
+}
+
+type ReleaseChunkReq struct {
+	SessionID  string `json:"session_id"`
+	ChunkIndex uint32 `json:"chunk_index"`
+	Amount     uint64 `json:"amount"`
+}
+type ReleaseChunkResp struct {
+	SessionID      string `json:"session_id"`
+	ReleaseToken   string `json:"release_token"`
+	ReleasedChunks uint32 `json:"released_chunks"`
+	ReleasedAmount uint64 `json:"released_amount"`
+	Status         string `json:"status"`
+}
+
+type VerifyReleaseReq struct {
+	SessionID    string `json:"session_id"`
+	ChunkIndex   uint32 `json:"chunk_index"`
+	ReleaseToken string `json:"release_token"`
+}
+type VerifyReleaseResp struct {
+	Valid bool `json:"valid"`
+}
+
+type SessionCloseReq struct {
+	SessionID string `json:"session_id"`
+}
+type SessionCloseResp struct {
+	SessionID string `json:"session_id"`
+	Status    string `json:"status"`
+}
+
+type DisputeReq struct {
+	SessionID string `json:"session_id"`
+	Reason    string `json:"reason"`
+}
+type DisputeResp struct {
+	SessionID string `json:"session_id"`
+	CaseID    string `json:"case_id"`
+	Status    string `json:"status"`
+}
+
+func InitDB(db *sql.DB) error {
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS demands (
+			demand_id TEXT PRIMARY KEY,
+			seed_hash TEXT NOT NULL,
+			buyer_peer_id TEXT NOT NULL,
+			buyer_addrs_json TEXT NOT NULL DEFAULT '[]',
+			chunk_count INTEGER NOT NULL,
+			status TEXT NOT NULL,
+			created_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS quotes (
+			quote_id TEXT PRIMARY KEY,
+			demand_id TEXT NOT NULL,
+			seller_peer_id TEXT NOT NULL,
+			seed_price INTEGER NOT NULL,
+			chunk_price INTEGER NOT NULL,
+			expires_at INTEGER NOT NULL,
+			created_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS deals (
+			deal_id TEXT PRIMARY KEY,
+			demand_id TEXT NOT NULL,
+			quote_id TEXT NOT NULL,
+			buyer_peer_id TEXT NOT NULL,
+			seller_peer_id TEXT NOT NULL,
+			arbiter_peer_id TEXT NOT NULL,
+			chunk_price INTEGER NOT NULL,
+			status TEXT NOT NULL,
+			created_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS sessions (
+			session_id TEXT PRIMARY KEY,
+			deal_id TEXT NOT NULL,
+			chunk_price INTEGER NOT NULL,
+			released_chunks INTEGER NOT NULL,
+			released_amount INTEGER NOT NULL,
+			status TEXT NOT NULL,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS release_tokens (
+			session_id TEXT NOT NULL,
+			chunk_index INTEGER NOT NULL,
+			release_token TEXT NOT NULL,
+			used INTEGER NOT NULL,
+			created_at INTEGER NOT NULL,
+			PRIMARY KEY (session_id, chunk_index)
+		)`,
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			return err
+		}
+	}
+	// 兼容老库：补充 buyer_addrs_json 字段。
+	if _, err := db.Exec(`ALTER TABLE demands ADD COLUMN buyer_addrs_json TEXT NOT NULL DEFAULT '[]'`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) PublishDemand(req PublishDemandReq) (PublishDemandResp, error) {
+	if req.SeedHash == "" || req.BuyerPeerID == "" || req.ChunkCount == 0 {
+		return PublishDemandResp{}, fmt.Errorf("invalid publish demand")
+	}
+	addrsJSON := "[]"
+	if len(req.BuyerAddrs) > 0 {
+		b, err := json.Marshal(req.BuyerAddrs)
+		if err != nil {
+			return PublishDemandResp{}, err
+		}
+		addrsJSON = string(b)
+	}
+	id := "dmd_" + randHex(8)
+	_, err := s.DB.Exec(`INSERT INTO demands(demand_id,seed_hash,buyer_peer_id,buyer_addrs_json,chunk_count,status,created_at) VALUES(?,?,?,?,?,?,?)`, id, req.SeedHash, req.BuyerPeerID, addrsJSON, req.ChunkCount, "open", time.Now().Unix())
+	if err != nil {
+		return PublishDemandResp{}, err
+	}
+	return PublishDemandResp{DemandID: id, Status: "open"}, nil
+}
+
+func (s *Service) SubmitQuote(req QuoteSubmitReq) (QuoteSubmitResp, error) {
+	if req.DemandID == "" || req.SellerPeerID == "" || req.SeedPrice == 0 || req.ChunkPrice == 0 {
+		return QuoteSubmitResp{}, fmt.Errorf("invalid submit quote")
+	}
+	if req.ExpiresAt == 0 {
+		req.ExpiresAt = time.Now().Add(10 * time.Minute).Unix()
+	}
+	id := "q_" + randHex(8)
+	_, err := s.DB.Exec(`INSERT INTO quotes(quote_id,demand_id,seller_peer_id,seed_price,chunk_price,expires_at,created_at) VALUES(?,?,?,?,?,?,?)`, id, req.DemandID, req.SellerPeerID, req.SeedPrice, req.ChunkPrice, req.ExpiresAt, time.Now().Unix())
+	if err != nil {
+		return QuoteSubmitResp{}, err
+	}
+	return QuoteSubmitResp{QuoteID: id, Status: "quoted"}, nil
+}
+
+func (s *Service) ListQuotes(req QuoteListReq) (QuoteListResp, error) {
+	rows, err := s.DB.Query(`SELECT quote_id,seller_peer_id,seed_price,chunk_price,expires_at FROM quotes WHERE demand_id=? ORDER BY created_at ASC`, req.DemandID)
+	if err != nil {
+		return QuoteListResp{}, err
+	}
+	defer rows.Close()
+	out := make([]QuoteItem, 0)
+	for rows.Next() {
+		var q QuoteItem
+		if err := rows.Scan(&q.QuoteID, &q.SellerPeerID, &q.SeedPrice, &q.ChunkPrice, &q.ExpiresAt); err != nil {
+			return QuoteListResp{}, err
+		}
+		if q.ExpiresAt > time.Now().Unix() {
+			out = append(out, q)
+		}
+	}
+	return QuoteListResp{Quotes: out}, nil
+}
+
+func (s *Service) AcceptDeal(req DealAcceptReq) (DealAcceptResp, error) {
+	if req.DemandID == "" || req.BuyerPeerID == "" || req.ArbiterPeerID == "" {
+		return DealAcceptResp{}, fmt.Errorf("invalid accept deal")
+	}
+	var demandBuyerID string
+	if err := s.DB.QueryRow(`SELECT buyer_peer_id FROM demands WHERE demand_id=?`, req.DemandID).Scan(&demandBuyerID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return DealAcceptResp{}, fmt.Errorf("demand not found")
+		}
+		return DealAcceptResp{}, err
+	}
+	if demandBuyerID != req.BuyerPeerID {
+		return DealAcceptResp{}, fmt.Errorf("buyer mismatch for demand")
+	}
+	var sellerID string
+	var chunkPrice uint64
+	if strings.TrimSpace(req.QuoteID) != "" {
+		if err := s.DB.QueryRow(`SELECT seller_peer_id,chunk_price FROM quotes WHERE quote_id=? AND demand_id=?`, req.QuoteID, req.DemandID).Scan(&sellerID, &chunkPrice); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return DealAcceptResp{}, fmt.Errorf("quote not found")
+			}
+			return DealAcceptResp{}, err
+		}
+	} else {
+		if strings.TrimSpace(req.DirectSellerPeerID) == "" || req.DirectChunkPrice == 0 || req.DirectSeedPrice == 0 {
+			return DealAcceptResp{}, fmt.Errorf("direct quote fields required")
+		}
+		if req.DirectExpiresAt > 0 && req.DirectExpiresAt < time.Now().Unix() {
+			return DealAcceptResp{}, fmt.Errorf("direct quote expired")
+		}
+		sellerID = strings.ToLower(strings.TrimSpace(req.DirectSellerPeerID))
+		chunkPrice = req.DirectChunkPrice
+	}
+	id := "deal_" + randHex(8)
+	quoteID := strings.TrimSpace(req.QuoteID)
+	if quoteID == "" {
+		quoteID = "direct"
+	}
+	_, err := s.DB.Exec(`INSERT INTO deals(deal_id,demand_id,quote_id,buyer_peer_id,seller_peer_id,arbiter_peer_id,chunk_price,status,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, id, req.DemandID, quoteID, req.BuyerPeerID, sellerID, req.ArbiterPeerID, chunkPrice, "channel_prepared", time.Now().Unix())
+	if err != nil {
+		return DealAcceptResp{}, err
+	}
+	return DealAcceptResp{DealID: id, SellerPeerID: sellerID, ChunkPrice: chunkPrice, Status: "channel_prepared"}, nil
+}
+
+func (s *Service) OpenSession(req SessionOpenReq) (SessionOpenResp, error) {
+	if req.DealID == "" {
+		return SessionOpenResp{}, fmt.Errorf("deal_id required")
+	}
+	var chunkPrice uint64
+	if err := s.DB.QueryRow(`SELECT chunk_price FROM deals WHERE deal_id=?`, req.DealID).Scan(&chunkPrice); err != nil {
+		return SessionOpenResp{}, err
+	}
+	id := "sess_" + randHex(8)
+	_, err := s.DB.Exec(`INSERT INTO sessions(session_id,deal_id,chunk_price,released_chunks,released_amount,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, id, req.DealID, chunkPrice, 0, 0, "active", time.Now().Unix(), time.Now().Unix())
+	if err != nil {
+		return SessionOpenResp{}, err
+	}
+	return SessionOpenResp{SessionID: id, Status: "active"}, nil
+}
+
+func (s *Service) ReleaseChunk(req ReleaseChunkReq) (ReleaseChunkResp, error) {
+	if req.SessionID == "" {
+		return ReleaseChunkResp{}, fmt.Errorf("session_id required")
+	}
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return ReleaseChunkResp{}, err
+	}
+	defer tx.Rollback()
+	var chunkPrice uint64
+	var releasedChunks uint32
+	var releasedAmount uint64
+	var status string
+	if err := tx.QueryRow(`SELECT chunk_price,released_chunks,released_amount,status FROM sessions WHERE session_id=?`, req.SessionID).Scan(&chunkPrice, &releasedChunks, &releasedAmount, &status); err != nil {
+		return ReleaseChunkResp{}, err
+	}
+	if status != "active" && status != "chunk_paying" {
+		return ReleaseChunkResp{}, fmt.Errorf("session status %s", status)
+	}
+	if req.Amount != chunkPrice {
+		return ReleaseChunkResp{}, fmt.Errorf("amount mismatch")
+	}
+	if req.ChunkIndex != releasedChunks {
+		return ReleaseChunkResp{}, fmt.Errorf("chunk_index must be next (%d)", releasedChunks)
+	}
+	releasedChunks++
+	releasedAmount += req.Amount
+	token := "rt_" + randHex(12)
+	if _, err := tx.Exec(`INSERT INTO release_tokens(session_id,chunk_index,release_token,used,created_at) VALUES(?,?,?,?,?)`, req.SessionID, req.ChunkIndex, token, 0, time.Now().Unix()); err != nil {
+		return ReleaseChunkResp{}, err
+	}
+	if _, err := tx.Exec(`UPDATE sessions SET released_chunks=?,released_amount=?,status='chunk_paying',updated_at=? WHERE session_id=?`, releasedChunks, releasedAmount, time.Now().Unix(), req.SessionID); err != nil {
+		return ReleaseChunkResp{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return ReleaseChunkResp{}, err
+	}
+	return ReleaseChunkResp{SessionID: req.SessionID, ReleaseToken: token, ReleasedChunks: releasedChunks, ReleasedAmount: releasedAmount, Status: "chunk_paying"}, nil
+}
+
+func (s *Service) VerifyRelease(req VerifyReleaseReq) (VerifyReleaseResp, error) {
+	var token string
+	var used int
+	err := s.DB.QueryRow(`SELECT release_token,used FROM release_tokens WHERE session_id=? AND chunk_index=?`, req.SessionID, req.ChunkIndex).Scan(&token, &used)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return VerifyReleaseResp{Valid: false}, nil
+		}
+		return VerifyReleaseResp{}, err
+	}
+	if token != req.ReleaseToken || used == 1 {
+		return VerifyReleaseResp{Valid: false}, nil
+	}
+	_, _ = s.DB.Exec(`UPDATE release_tokens SET used=1 WHERE session_id=? AND chunk_index=?`, req.SessionID, req.ChunkIndex)
+	return VerifyReleaseResp{Valid: true}, nil
+}
+
+func (s *Service) CloseSession(req SessionCloseReq) (SessionCloseResp, error) {
+	if _, err := s.DB.Exec(`UPDATE sessions SET status='finalized',updated_at=? WHERE session_id=?`, time.Now().Unix(), req.SessionID); err != nil {
+		return SessionCloseResp{}, err
+	}
+	return SessionCloseResp{SessionID: req.SessionID, Status: "finalized"}, nil
+}
+
+func (s *Service) Dispute(req DisputeReq) (DisputeResp, error) {
+	if req.SessionID == "" {
+		return DisputeResp{}, fmt.Errorf("session_id required")
+	}
+	caseID := "case_" + randHex(8)
+	if _, err := s.DB.Exec(`UPDATE sessions SET status='dispute',updated_at=? WHERE session_id=?`, time.Now().Unix(), req.SessionID); err != nil {
+		return DisputeResp{}, err
+	}
+	return DisputeResp{SessionID: req.SessionID, CaseID: caseID, Status: "dispute"}, nil
+}
+
+func randHex(n int) string {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
