@@ -16,119 +16,119 @@ type Service struct{ DB *sql.DB }
 const ProtoDemandAnnounce = "/bsv-transfer/demand/announce/1.0.0"
 
 type PublishDemandReq struct {
-	SeedHash            string   `json:"seed_hash"`
-	BuyerPeerID         string   `json:"buyer_peer_id"`
-	BuyerAddrs          []string `json:"buyer_addrs,omitempty"`
-	ChunkCount          uint32   `json:"chunk_count"`
-	ChargeAmountSatoshi uint64   `json:"charge_amount_satoshi,omitempty"`
+	SeedHash            string   `protobuf:"bytes,1,opt,name=seed_hash,json=seedHash,proto3" json:"seed_hash"`
+	BuyerPeerID         string   `protobuf:"bytes,2,opt,name=buyer_peer_id,json=buyerPeerId,proto3" json:"buyer_peer_id"`
+	BuyerAddrs          []string `protobuf:"bytes,3,rep,name=buyer_addrs,json=buyerAddrs,proto3" json:"buyer_addrs,omitempty"`
+	ChunkCount          uint32   `protobuf:"varint,4,opt,name=chunk_count,json=chunkCount,proto3" json:"chunk_count"`
+	ChargeAmountSatoshi uint64   `protobuf:"varint,5,opt,name=charge_amount_satoshi,json=chargeAmountSatoshi,proto3" json:"charge_amount_satoshi,omitempty"`
 }
 type PublishDemandResp struct {
-	DemandID             string `json:"demand_id"`
-	Status               string `json:"status"`
-	ChargedAmountSatoshi uint64 `json:"charged_amount_satoshi,omitempty"`
+	DemandID             string `protobuf:"bytes,1,opt,name=demand_id,json=demandId,proto3" json:"demand_id"`
+	Status               string `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
+	ChargedAmountSatoshi uint64 `protobuf:"varint,3,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
 }
 
 type QuoteSubmitReq struct {
-	DemandID     string `json:"demand_id"`
-	SellerPeerID string `json:"seller_peer_id"`
-	SeedPrice    uint64 `json:"seed_price"`
-	ChunkPrice   uint64 `json:"chunk_price"`
-	ExpiresAt    int64  `json:"expires_at"`
+	DemandID     string `protobuf:"bytes,1,opt,name=demand_id,json=demandId,proto3" json:"demand_id"`
+	SellerPeerID string `protobuf:"bytes,2,opt,name=seller_peer_id,json=sellerPeerId,proto3" json:"seller_peer_id"`
+	SeedPrice    uint64 `protobuf:"varint,3,opt,name=seed_price,json=seedPrice,proto3" json:"seed_price"`
+	ChunkPrice   uint64 `protobuf:"varint,4,opt,name=chunk_price,json=chunkPrice,proto3" json:"chunk_price"`
+	ExpiresAt    int64  `protobuf:"varint,5,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at"`
 }
 type QuoteSubmitResp struct {
-	QuoteID string `json:"quote_id"`
-	Status  string `json:"status"`
+	QuoteID string `protobuf:"bytes,1,opt,name=quote_id,json=quoteId,proto3" json:"quote_id"`
+	Status  string `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
 }
 
 type QuoteListReq struct {
-	DemandID string `json:"demand_id"`
+	DemandID string `protobuf:"bytes,1,opt,name=demand_id,json=demandId,proto3" json:"demand_id"`
 }
 type QuoteItem struct {
-	QuoteID      string `json:"quote_id"`
-	SellerPeerID string `json:"seller_peer_id"`
-	SeedPrice    uint64 `json:"seed_price"`
-	ChunkPrice   uint64 `json:"chunk_price"`
-	ExpiresAt    int64  `json:"expires_at"`
+	QuoteID      string `protobuf:"bytes,1,opt,name=quote_id,json=quoteId,proto3" json:"quote_id"`
+	SellerPeerID string `protobuf:"bytes,2,opt,name=seller_peer_id,json=sellerPeerId,proto3" json:"seller_peer_id"`
+	SeedPrice    uint64 `protobuf:"varint,3,opt,name=seed_price,json=seedPrice,proto3" json:"seed_price"`
+	ChunkPrice   uint64 `protobuf:"varint,4,opt,name=chunk_price,json=chunkPrice,proto3" json:"chunk_price"`
+	ExpiresAt    int64  `protobuf:"varint,5,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at"`
 }
 type QuoteListResp struct {
-	Quotes []QuoteItem `json:"quotes"`
+	Quotes []QuoteItem `protobuf:"bytes,1,rep,name=quotes,proto3" json:"quotes"`
 }
 
 type DemandAnnounceReq struct {
-	DemandID    string   `json:"demand_id"`
-	SeedHash    string   `json:"seed_hash"`
-	BuyerPeerID string   `json:"buyer_peer_id"`
-	BuyerAddrs  []string `json:"buyer_addrs"`
-	ChunkCount  uint32   `json:"chunk_count"`
-	Status      string   `json:"status"`
+	DemandID    string   `protobuf:"bytes,1,opt,name=demand_id,json=demandId,proto3" json:"demand_id"`
+	SeedHash    string   `protobuf:"bytes,2,opt,name=seed_hash,json=seedHash,proto3" json:"seed_hash"`
+	BuyerPeerID string   `protobuf:"bytes,3,opt,name=buyer_peer_id,json=buyerPeerId,proto3" json:"buyer_peer_id"`
+	BuyerAddrs  []string `protobuf:"bytes,4,rep,name=buyer_addrs,json=buyerAddrs,proto3" json:"buyer_addrs"`
+	ChunkCount  uint32   `protobuf:"varint,5,opt,name=chunk_count,json=chunkCount,proto3" json:"chunk_count"`
+	Status      string   `protobuf:"bytes,6,opt,name=status,proto3" json:"status"`
 }
 type DemandAnnounceResp struct {
-	Status string `json:"status"`
+	Status string `protobuf:"bytes,1,opt,name=status,proto3" json:"status"`
 }
 
 type DealAcceptReq struct {
-	DemandID           string `json:"demand_id"`
-	QuoteID            string `json:"quote_id"`
-	BuyerPeerID        string `json:"buyer_peer_id"`
-	ArbiterPeerID      string `json:"arbiter_peer_id"`
-	DirectSellerPeerID string `json:"direct_seller_peer_id,omitempty"`
-	DirectSeedPrice    uint64 `json:"direct_seed_price,omitempty"`
-	DirectChunkPrice   uint64 `json:"direct_chunk_price,omitempty"`
-	DirectExpiresAt    int64  `json:"direct_expires_at,omitempty"`
+	DemandID           string `protobuf:"bytes,1,opt,name=demand_id,json=demandId,proto3" json:"demand_id"`
+	QuoteID            string `protobuf:"bytes,2,opt,name=quote_id,json=quoteId,proto3" json:"quote_id"`
+	BuyerPeerID        string `protobuf:"bytes,3,opt,name=buyer_peer_id,json=buyerPeerId,proto3" json:"buyer_peer_id"`
+	ArbiterPeerID      string `protobuf:"bytes,4,opt,name=arbiter_peer_id,json=arbiterPeerId,proto3" json:"arbiter_peer_id"`
+	DirectSellerPeerID string `protobuf:"bytes,5,opt,name=direct_seller_peer_id,json=directSellerPeerId,proto3" json:"direct_seller_peer_id,omitempty"`
+	DirectSeedPrice    uint64 `protobuf:"varint,6,opt,name=direct_seed_price,json=directSeedPrice,proto3" json:"direct_seed_price,omitempty"`
+	DirectChunkPrice   uint64 `protobuf:"varint,7,opt,name=direct_chunk_price,json=directChunkPrice,proto3" json:"direct_chunk_price,omitempty"`
+	DirectExpiresAt    int64  `protobuf:"varint,8,opt,name=direct_expires_at,json=directExpiresAt,proto3" json:"direct_expires_at,omitempty"`
 }
 type DealAcceptResp struct {
-	DealID       string `json:"deal_id"`
-	SellerPeerID string `json:"seller_peer_id"`
-	ChunkPrice   uint64 `json:"chunk_price"`
-	Status       string `json:"status"`
+	DealID       string `protobuf:"bytes,1,opt,name=deal_id,json=dealId,proto3" json:"deal_id"`
+	SellerPeerID string `protobuf:"bytes,2,opt,name=seller_peer_id,json=sellerPeerId,proto3" json:"seller_peer_id"`
+	ChunkPrice   uint64 `protobuf:"varint,3,opt,name=chunk_price,json=chunkPrice,proto3" json:"chunk_price"`
+	Status       string `protobuf:"bytes,4,opt,name=status,proto3" json:"status"`
 }
 
 type SessionOpenReq struct {
-	DealID string `json:"deal_id"`
+	DealID string `protobuf:"bytes,1,opt,name=deal_id,json=dealId,proto3" json:"deal_id"`
 }
 type SessionOpenResp struct {
-	SessionID string `json:"session_id"`
-	Status    string `json:"status"`
+	SessionID string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id"`
+	Status    string `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
 }
 
 type ReleaseChunkReq struct {
-	SessionID  string `json:"session_id"`
-	ChunkIndex uint32 `json:"chunk_index"`
-	Amount     uint64 `json:"amount"`
+	SessionID  string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id"`
+	ChunkIndex uint32 `protobuf:"varint,2,opt,name=chunk_index,json=chunkIndex,proto3" json:"chunk_index"`
+	Amount     uint64 `protobuf:"varint,3,opt,name=amount,proto3" json:"amount"`
 }
 type ReleaseChunkResp struct {
-	SessionID      string `json:"session_id"`
-	ReleaseToken   string `json:"release_token"`
-	ReleasedChunks uint32 `json:"released_chunks"`
-	ReleasedAmount uint64 `json:"released_amount"`
-	Status         string `json:"status"`
+	SessionID      string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id"`
+	ReleaseToken   string `protobuf:"bytes,2,opt,name=release_token,json=releaseToken,proto3" json:"release_token"`
+	ReleasedChunks uint32 `protobuf:"varint,3,opt,name=released_chunks,json=releasedChunks,proto3" json:"released_chunks"`
+	ReleasedAmount uint64 `protobuf:"varint,4,opt,name=released_amount,json=releasedAmount,proto3" json:"released_amount"`
+	Status         string `protobuf:"bytes,5,opt,name=status,proto3" json:"status"`
 }
 
 type VerifyReleaseReq struct {
-	SessionID    string `json:"session_id"`
-	ChunkIndex   uint32 `json:"chunk_index"`
-	ReleaseToken string `json:"release_token"`
+	SessionID    string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id"`
+	ChunkIndex   uint32 `protobuf:"varint,2,opt,name=chunk_index,json=chunkIndex,proto3" json:"chunk_index"`
+	ReleaseToken string `protobuf:"bytes,3,opt,name=release_token,json=releaseToken,proto3" json:"release_token"`
 }
 type VerifyReleaseResp struct {
-	Valid bool `json:"valid"`
+	Valid bool `protobuf:"varint,1,opt,name=valid,proto3" json:"valid"`
 }
 
 type SessionCloseReq struct {
-	SessionID string `json:"session_id"`
+	SessionID string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id"`
 }
 type SessionCloseResp struct {
-	SessionID string `json:"session_id"`
-	Status    string `json:"status"`
+	SessionID string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id"`
+	Status    string `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
 }
 
 type DisputeReq struct {
-	SessionID string `json:"session_id"`
-	Reason    string `json:"reason"`
+	SessionID string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id"`
+	Reason    string `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason"`
 }
 type DisputeResp struct {
-	SessionID string `json:"session_id"`
-	CaseID    string `json:"case_id"`
-	Status    string `json:"status"`
+	SessionID string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id"`
+	CaseID    string `protobuf:"bytes,2,opt,name=case_id,json=caseId,proto3" json:"case_id"`
+	Status    string `protobuf:"bytes,3,opt,name=status,proto3" json:"status"`
 }
 
 func InitDB(db *sql.DB) error {

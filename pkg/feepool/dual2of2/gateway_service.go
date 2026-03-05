@@ -74,8 +74,8 @@ func (s *GatewayService) Create(req CreateReq) (CreateResp, error) {
 	if strings.TrimSpace(req.ClientID) == "" {
 		return CreateResp{}, fmt.Errorf("client_id required")
 	}
-	if strings.TrimSpace(req.SpendTxHex) == "" {
-		return CreateResp{}, fmt.Errorf("spend_tx_hex required")
+	if len(req.SpendTx) == 0 {
+		return CreateResp{}, fmt.Errorf("spend_tx required")
 	}
 	if req.InputAmount == 0 {
 		return CreateResp{}, fmt.Errorf("input_amount required")
@@ -96,13 +96,14 @@ func (s *GatewayService) Create(req CreateReq) (CreateResp, error) {
 		return CreateResp{}, err
 	}
 
-	spendTx, err := tx.NewTransactionFromHex(req.SpendTxHex)
+	spendTxHex := strings.ToLower(hex.EncodeToString(req.SpendTx))
+	spendTx, err := tx.NewTransactionFromHex(spendTxHex)
 	if err != nil {
 		return CreateResp{}, fmt.Errorf("parse spend tx: %w", err)
 	}
-	clientSig, err := hex.DecodeString(strings.TrimSpace(req.ClientSigHex))
-	if err != nil {
-		return CreateResp{}, fmt.Errorf("decode client_signature: %w", err)
+	clientSig := append([]byte(nil), req.ClientSig...)
+	if len(clientSig) == 0 {
+		return CreateResp{}, fmt.Errorf("client_signature required")
 	}
 	ok, err := ce.ServerVerifyClientSpendSig(spendTx, req.InputAmount, serverActor.PubKey, clientPub, &clientSig)
 	if err != nil {
@@ -131,14 +132,14 @@ func (s *GatewayService) Create(req CreateReq) (CreateResp, error) {
 	}
 
 	// 幂等：若 spend_txid 已存在，则直接返回（以数据库为准）。
-	if old, found, loadErr := LoadSessionBySpendTxID(s.DB, spendTxID); loadErr == nil && found {
-		return CreateResp{
-			SpendTxID:     old.SpendTxID,
-			ServerSigHex:  hex.EncodeToString(*serverSig),
-			SpendTxFeeSat: old.SpendTxFeeSat,
-			PoolAmountSat: old.PoolAmountSat,
-		}, nil
-	}
+		if old, found, loadErr := LoadSessionBySpendTxID(s.DB, spendTxID); loadErr == nil && found {
+			return CreateResp{
+				SpendTxID:     old.SpendTxID,
+				ServerSig:     append([]byte(nil), *serverSig...),
+				SpendTxFeeSat: old.SpendTxFeeSat,
+				PoolAmountSat: old.PoolAmountSat,
+			}, nil
+		}
 
 	row := GatewaySessionRow{
 		SpendTxID:                 spendTxID,
@@ -167,7 +168,7 @@ func (s *GatewayService) Create(req CreateReq) (CreateResp, error) {
 	})
 	return CreateResp{
 		SpendTxID:     spendTxID,
-		ServerSigHex:  hex.EncodeToString(*serverSig),
+		ServerSig:     append([]byte(nil), *serverSig...),
 		ErrorMessage:  "",
 		SpendTxFeeSat: spendTxFee,
 		PoolAmountSat: poolAmount,
@@ -209,7 +210,11 @@ func (s *GatewayService) BaseTx(req BaseTxReq) (BaseTxResp, error) {
 		return BaseTxResp{}, err
 	}
 
-	baseTx, err := tx.NewTransactionFromHex(req.BaseTxHex)
+	if len(req.BaseTx) == 0 {
+		return BaseTxResp{Success: false, Status: row.Status, Error: "base tx required"}, nil
+	}
+	baseTxHex := strings.ToLower(hex.EncodeToString(req.BaseTx))
+	baseTx, err := tx.NewTransactionFromHex(baseTxHex)
 	if err != nil {
 		return BaseTxResp{}, fmt.Errorf("parse base tx: %w", err)
 	}
@@ -223,12 +228,12 @@ func (s *GatewayService) BaseTx(req BaseTxReq) (BaseTxResp, error) {
 	if baseTx.Outputs[0].LockingScript.String() != multisigScript.String() {
 		return BaseTxResp{Success: false, Status: row.Status, Error: "base tx output[0] locking script mismatch"}, nil
 	}
-	baseTxID, err := s.Chain.Broadcast(req.BaseTxHex)
+	baseTxID, err := s.Chain.Broadcast(baseTxHex)
 	if err != nil {
 		return BaseTxResp{Success: false, Status: row.Status, Error: "broadcast base tx failed: " + err.Error()}, nil
 	}
 	row.BaseTxID = baseTxID
-	row.BaseTxHex = req.BaseTxHex
+	row.BaseTxHex = baseTxHex
 	row.Status = "active"
 	if err := UpdateSession(s.DB, row); err != nil {
 		return BaseTxResp{}, err
@@ -288,9 +293,9 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 	if err != nil {
 		return PayConfirmResp{Success: false, Status: row.Status, Error: "rebuild updated tx failed: " + err.Error()}, nil
 	}
-	clientSig, err := hex.DecodeString(strings.TrimSpace(req.ClientSigHex))
-	if err != nil {
-		return PayConfirmResp{Success: false, Status: row.Status, Error: "decode signature failed: " + err.Error()}, nil
+	clientSig := append([]byte(nil), req.ClientSig...)
+	if len(clientSig) == 0 {
+		return PayConfirmResp{Success: false, Status: row.Status, Error: "signature required"}, nil
 	}
 	ok, err := ce.ServerVerifyClientUpdateSig(updatedTx, serverActor.PubKey, clientPub, &clientSig)
 	if err != nil {
@@ -387,9 +392,9 @@ func (s *GatewayService) Close(req CloseReq) (CloseResp, error) {
 	if err != nil {
 		return CloseResp{Success: false, Status: row.Status, Error: "rebuild final tx failed: " + err.Error()}, nil
 	}
-	clientSig, err := hex.DecodeString(strings.TrimSpace(req.ClientSigHex))
-	if err != nil {
-		return CloseResp{Success: false, Status: row.Status, Error: "decode signature failed: " + err.Error()}, nil
+	clientSig := append([]byte(nil), req.ClientSig...)
+	if len(clientSig) == 0 {
+		return CloseResp{Success: false, Status: row.Status, Error: "signature required"}, nil
 	}
 	ok, err := ce.ServerVerifyClientSpendSig(finalTx, row.PoolAmountSat, serverActor.PubKey, clientPub, &clientSig)
 	if err != nil {
@@ -446,12 +451,13 @@ func (s *GatewayService) State(req StateReq) (StateResp, error) {
 	if !found {
 		return StateResp{Status: "not_found"}, nil
 	}
+	currentTx, _ := hex.DecodeString(strings.TrimSpace(row.CurrentTxHex))
 	return StateResp{
 		Status:          row.Status,
 		SpendTxID:       row.SpendTxID,
 		BaseTxID:        row.BaseTxID,
 		FinalTxID:       row.FinalTxID,
-		CurrentTxHex:    row.CurrentTxHex,
+		CurrentTx:       currentTx,
 		PoolAmountSat:   row.PoolAmountSat,
 		SpendTxFeeSat:   row.SpendTxFeeSat,
 		Sequence:        row.Sequence,
