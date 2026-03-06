@@ -19,12 +19,23 @@ import (
 )
 
 type ErrorResponsePB struct {
-	Error string `protobuf:"bytes,1,opt,name=error,proto3" json:"error,omitempty"`
+	// IsError 作为错误响应标记位，避免普通响应字段误判为错误。
+	IsError bool `protobuf:"varint,1,opt,name=is_error,json=isError,proto3" json:"is_error,omitempty"`
+	Error   string `protobuf:"bytes,127,opt,name=error,proto3" json:"error,omitempty"`
 }
 
 func (m *ErrorResponsePB) Reset()         { *m = ErrorResponsePB{} }
 func (m *ErrorResponsePB) String() string { return oldproto.CompactTextString(m) }
 func (*ErrorResponsePB) ProtoMessage()    {}
+
+// legacyErrorResponsePB 兼容旧版错误响应（field #1 直接承载 error 字符串）。
+type legacyErrorResponsePB struct {
+	Error string `protobuf:"bytes,1,opt,name=error,proto3" json:"error,omitempty"`
+}
+
+func (m *legacyErrorResponsePB) Reset()         { *m = legacyErrorResponsePB{} }
+func (m *legacyErrorResponsePB) String() string { return oldproto.CompactTextString(m) }
+func (*legacyErrorResponsePB) ProtoMessage()    {}
 
 // HandleProto 使用 protobuf 二进制编解码处理 p2p RPC。
 // 说明：TReq/TResp 需要在对应包内实现 protobuf Message（手写 tag + ProtoMessage）。
@@ -311,7 +322,7 @@ func CallProto[TReq any, TResp any](ctx context.Context, h host.Host, pid peer.I
 		return fmt.Errorf("empty response")
 	}
 	var e ErrorResponsePB
-	if err := oldproto.Unmarshal(body, &e); err == nil && strings.TrimSpace(e.Error) != "" {
+	if err := oldproto.Unmarshal(body, &e); err == nil && e.IsError && strings.TrimSpace(e.Error) != "" {
 		if cfg.Trace != nil {
 			cfg.Trace.Handle(TraceEvent{
 				TS:           nowRFC3339(),
@@ -332,6 +343,27 @@ func CallProto[TReq any, TResp any](ctx context.Context, h host.Host, pid peer.I
 		return errors.New(e.Error)
 	}
 	if err := decodeProtoInto(body, out); err != nil {
+		var legacy legacyErrorResponsePB
+		if uerr := oldproto.Unmarshal(body, &legacy); uerr == nil && strings.TrimSpace(legacy.Error) != "" {
+			if cfg.Trace != nil {
+				cfg.Trace.Handle(TraceEvent{
+					TS:           nowRFC3339(),
+					Direction:    "send",
+					Domain:       cfg.Domain,
+					Network:      cfg.Network,
+					ProtoID:      string(protoID),
+					MsgID:        env.MsgID,
+					LocalPeerID:  h.ID().String(),
+					RemotePeerID: pid.String(),
+					ExpireAt:     env.ExpireAt,
+					Request:      normalizeProtoTracePayload(payload),
+					Response:     normalizeProtoTracePayload(body),
+					Error:        legacy.Error,
+					DurationMS:   time.Since(start).Milliseconds(),
+				})
+			}
+			return errors.New(legacy.Error)
+		}
 		if cfg.Trace != nil {
 			cfg.Trace.Handle(TraceEvent{
 				TS:           nowRFC3339(),
@@ -372,10 +404,10 @@ func CallProto[TReq any, TResp any](ctx context.Context, h host.Host, pid peer.I
 }
 
 func writeErrProto(w io.Writer, msg string) {
-	b, err := marshalProtoDeterministic(&ErrorResponsePB{Error: msg})
+	b, err := marshalProtoDeterministic(&ErrorResponsePB{IsError: true, Error: msg})
 	if err != nil {
 		// 兜底：编码失败时直接写空错误串的 protobuf 消息。
-		b, _ = marshalProtoDeterministic(&ErrorResponsePB{Error: "internal proto encode failed"})
+		b, _ = marshalProtoDeterministic(&ErrorResponsePB{IsError: true, Error: "internal proto encode failed"})
 	}
 	_, _ = w.Write(b)
 }
