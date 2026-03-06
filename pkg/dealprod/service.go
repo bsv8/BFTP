@@ -14,6 +14,7 @@ import (
 type Service struct{ DB *sql.DB }
 
 const ProtoDemandAnnounce = "/bsv-transfer/demand/announce/1.0.0"
+const ProtoLiveDemandAnnounce = "/bsv-transfer/live/demand/announce/1.0.0"
 
 type PublishDemandReq struct {
 	SeedHash            string   `protobuf:"bytes,1,opt,name=seed_hash,json=seedHash,proto3" json:"seed_hash"`
@@ -23,6 +24,20 @@ type PublishDemandReq struct {
 	ChargeAmountSatoshi uint64   `protobuf:"varint,5,opt,name=charge_amount_satoshi,json=chargeAmountSatoshi,proto3" json:"charge_amount_satoshi,omitempty"`
 }
 type PublishDemandResp struct {
+	DemandID             string `protobuf:"bytes,1,opt,name=demand_id,json=demandId,proto3" json:"demand_id"`
+	Status               string `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
+	ChargedAmountSatoshi uint64 `protobuf:"varint,3,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
+}
+
+type PublishLiveDemandReq struct {
+	StreamID            string   `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id"`
+	BuyerPeerID         string   `protobuf:"bytes,2,opt,name=buyer_peer_id,json=buyerPeerId,proto3" json:"buyer_peer_id"`
+	BuyerAddrs          []string `protobuf:"bytes,3,rep,name=buyer_addrs,json=buyerAddrs,proto3" json:"buyer_addrs,omitempty"`
+	HaveSegmentIndex    int64    `protobuf:"varint,4,opt,name=have_segment_index,json=haveSegmentIndex,proto3" json:"have_segment_index"`
+	Window              uint32   `protobuf:"varint,5,opt,name=window,proto3" json:"window"`
+	ChargeAmountSatoshi uint64   `protobuf:"varint,6,opt,name=charge_amount_satoshi,json=chargeAmountSatoshi,proto3" json:"charge_amount_satoshi,omitempty"`
+}
+type PublishLiveDemandResp struct {
 	DemandID             string `protobuf:"bytes,1,opt,name=demand_id,json=demandId,proto3" json:"demand_id"`
 	Status               string `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
 	ChargedAmountSatoshi uint64 `protobuf:"varint,3,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
@@ -64,6 +79,52 @@ type DemandAnnounceReq struct {
 }
 type DemandAnnounceResp struct {
 	Status string `protobuf:"bytes,1,opt,name=status,proto3" json:"status"`
+}
+
+type LiveDemandAnnounceReq struct {
+	DemandID         string   `protobuf:"bytes,1,opt,name=demand_id,json=demandId,proto3" json:"demand_id"`
+	StreamID         string   `protobuf:"bytes,2,opt,name=stream_id,json=streamId,proto3" json:"stream_id"`
+	BuyerPeerID      string   `protobuf:"bytes,3,opt,name=buyer_peer_id,json=buyerPeerId,proto3" json:"buyer_peer_id"`
+	BuyerAddrs       []string `protobuf:"bytes,4,rep,name=buyer_addrs,json=buyerAddrs,proto3" json:"buyer_addrs"`
+	HaveSegmentIndex int64    `protobuf:"varint,5,opt,name=have_segment_index,json=haveSegmentIndex,proto3" json:"have_segment_index"`
+	Window           uint32   `protobuf:"varint,6,opt,name=window,proto3" json:"window"`
+	Status           string   `protobuf:"bytes,7,opt,name=status,proto3" json:"status"`
+}
+type LiveDemandAnnounceResp struct {
+	Status string `protobuf:"bytes,1,opt,name=status,proto3" json:"status"`
+}
+
+type LiveQuoteSegment struct {
+	SegmentIndex uint64 `protobuf:"varint,1,opt,name=segment_index,json=segmentIndex,proto3" json:"segment_index"`
+	SeedHash     string `protobuf:"bytes,2,opt,name=seed_hash,json=seedHash,proto3" json:"seed_hash"`
+}
+
+type LiveQuoteSubmitReq struct {
+	DemandID           string              `protobuf:"bytes,1,opt,name=demand_id,json=demandId,proto3" json:"demand_id"`
+	SellerPeerID       string              `protobuf:"bytes,2,opt,name=seller_peer_id,json=sellerPeerId,proto3" json:"seller_peer_id"`
+	StreamID           string              `protobuf:"bytes,3,opt,name=stream_id,json=streamId,proto3" json:"stream_id"`
+	LatestSegmentIndex uint64              `protobuf:"varint,4,opt,name=latest_segment_index,json=latestSegmentIndex,proto3" json:"latest_segment_index"`
+	RecentSegments     []*LiveQuoteSegment `protobuf:"bytes,5,rep,name=recent_segments,json=recentSegments,proto3" json:"recent_segments,omitempty"`
+	ExpiresAt          int64               `protobuf:"varint,6,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at"`
+}
+type LiveQuoteSubmitResp struct {
+	QuoteID string `protobuf:"bytes,1,opt,name=quote_id,json=quoteId,proto3" json:"quote_id"`
+	Status  string `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
+}
+
+type LiveQuoteListReq struct {
+	DemandID string `protobuf:"bytes,1,opt,name=demand_id,json=demandId,proto3" json:"demand_id"`
+}
+type LiveQuoteItem struct {
+	QuoteID            string              `protobuf:"bytes,1,opt,name=quote_id,json=quoteId,proto3" json:"quote_id"`
+	SellerPeerID       string              `protobuf:"bytes,2,opt,name=seller_peer_id,json=sellerPeerId,proto3" json:"seller_peer_id"`
+	StreamID           string              `protobuf:"bytes,3,opt,name=stream_id,json=streamId,proto3" json:"stream_id"`
+	LatestSegmentIndex uint64              `protobuf:"varint,4,opt,name=latest_segment_index,json=latestSegmentIndex,proto3" json:"latest_segment_index"`
+	RecentSegments     []*LiveQuoteSegment `protobuf:"bytes,5,rep,name=recent_segments,json=recentSegments,proto3" json:"recent_segments,omitempty"`
+	ExpiresAt          int64               `protobuf:"varint,6,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at"`
+}
+type LiveQuoteListResp struct {
+	Quotes []*LiveQuoteItem `protobuf:"bytes,1,rep,name=quotes,proto3" json:"quotes"`
 }
 
 type DealAcceptReq struct {
@@ -142,12 +203,32 @@ func InitDB(db *sql.DB) error {
 			status TEXT NOT NULL,
 			created_at INTEGER NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS live_demands (
+			demand_id TEXT PRIMARY KEY,
+			stream_id TEXT NOT NULL,
+			buyer_peer_id TEXT NOT NULL,
+			buyer_addrs_json TEXT NOT NULL DEFAULT '[]',
+			have_segment_index INTEGER NOT NULL,
+			window_size INTEGER NOT NULL,
+			status TEXT NOT NULL,
+			created_at INTEGER NOT NULL
+		)`,
 		`CREATE TABLE IF NOT EXISTS quotes (
 			quote_id TEXT PRIMARY KEY,
 			demand_id TEXT NOT NULL,
 			seller_peer_id TEXT NOT NULL,
 			seed_price INTEGER NOT NULL,
 			chunk_price INTEGER NOT NULL,
+			expires_at INTEGER NOT NULL,
+			created_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS live_quotes (
+			quote_id TEXT PRIMARY KEY,
+			demand_id TEXT NOT NULL,
+			seller_peer_id TEXT NOT NULL,
+			stream_id TEXT NOT NULL,
+			latest_segment_index INTEGER NOT NULL,
+			recent_segments_json TEXT NOT NULL DEFAULT '[]',
 			expires_at INTEGER NOT NULL,
 			created_at INTEGER NOT NULL
 		)`,
@@ -215,6 +296,35 @@ func (s *Service) PublishDemand(req PublishDemandReq) (PublishDemandResp, error)
 	return PublishDemandResp{DemandID: id, Status: "open"}, nil
 }
 
+func (s *Service) PublishLiveDemand(req PublishLiveDemandReq) (PublishLiveDemandResp, error) {
+	if strings.TrimSpace(req.StreamID) == "" || strings.TrimSpace(req.BuyerPeerID) == "" || req.Window == 0 {
+		return PublishLiveDemandResp{}, fmt.Errorf("invalid publish live demand")
+	}
+	addrsJSON := "[]"
+	if len(req.BuyerAddrs) > 0 {
+		b, err := json.Marshal(req.BuyerAddrs)
+		if err != nil {
+			return PublishLiveDemandResp{}, err
+		}
+		addrsJSON = string(b)
+	}
+	id := "ldmd_" + randHex(8)
+	_, err := s.DB.Exec(`INSERT INTO live_demands(demand_id,stream_id,buyer_peer_id,buyer_addrs_json,have_segment_index,window_size,status,created_at) VALUES(?,?,?,?,?,?,?,?)`,
+		id,
+		strings.ToLower(strings.TrimSpace(req.StreamID)),
+		strings.TrimSpace(req.BuyerPeerID),
+		addrsJSON,
+		req.HaveSegmentIndex,
+		req.Window,
+		"open",
+		time.Now().Unix(),
+	)
+	if err != nil {
+		return PublishLiveDemandResp{}, err
+	}
+	return PublishLiveDemandResp{DemandID: id, Status: "open", ChargedAmountSatoshi: req.ChargeAmountSatoshi}, nil
+}
+
 func (s *Service) SubmitQuote(req QuoteSubmitReq) (QuoteSubmitResp, error) {
 	if req.DemandID == "" || req.SellerPeerID == "" || req.SeedPrice == 0 || req.ChunkPrice == 0 {
 		return QuoteSubmitResp{}, fmt.Errorf("invalid submit quote")
@@ -247,6 +357,62 @@ func (s *Service) ListQuotes(req QuoteListReq) (QuoteListResp, error) {
 		}
 	}
 	return QuoteListResp{Quotes: out}, nil
+}
+
+func (s *Service) SubmitLiveQuote(req LiveQuoteSubmitReq) (LiveQuoteSubmitResp, error) {
+	if strings.TrimSpace(req.DemandID) == "" || strings.TrimSpace(req.SellerPeerID) == "" || strings.TrimSpace(req.StreamID) == "" || len(req.RecentSegments) == 0 {
+		return LiveQuoteSubmitResp{}, fmt.Errorf("invalid submit live quote")
+	}
+	if req.ExpiresAt == 0 {
+		req.ExpiresAt = time.Now().Add(2 * time.Minute).Unix()
+	}
+	segmentsJSON, err := json.Marshal(req.RecentSegments)
+	if err != nil {
+		return LiveQuoteSubmitResp{}, err
+	}
+	id := "lq_" + randHex(8)
+	_, err = s.DB.Exec(`INSERT INTO live_quotes(quote_id,demand_id,seller_peer_id,stream_id,latest_segment_index,recent_segments_json,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?)`,
+		id,
+		strings.TrimSpace(req.DemandID),
+		strings.TrimSpace(req.SellerPeerID),
+		strings.ToLower(strings.TrimSpace(req.StreamID)),
+		req.LatestSegmentIndex,
+		string(segmentsJSON),
+		req.ExpiresAt,
+		time.Now().Unix(),
+	)
+	if err != nil {
+		return LiveQuoteSubmitResp{}, err
+	}
+	return LiveQuoteSubmitResp{QuoteID: id, Status: "quoted"}, nil
+}
+
+func (s *Service) ListLiveQuotes(req LiveQuoteListReq) (LiveQuoteListResp, error) {
+	rows, err := s.DB.Query(`SELECT quote_id,seller_peer_id,stream_id,latest_segment_index,recent_segments_json,expires_at FROM live_quotes WHERE demand_id=? ORDER BY created_at ASC`, strings.TrimSpace(req.DemandID))
+	if err != nil {
+		return LiveQuoteListResp{}, err
+	}
+	defer rows.Close()
+	out := make([]*LiveQuoteItem, 0)
+	now := time.Now().Unix()
+	for rows.Next() {
+		var item LiveQuoteItem
+		var segmentsJSON string
+		if err := rows.Scan(&item.QuoteID, &item.SellerPeerID, &item.StreamID, &item.LatestSegmentIndex, &segmentsJSON, &item.ExpiresAt); err != nil {
+			return LiveQuoteListResp{}, err
+		}
+		if item.ExpiresAt > 0 && item.ExpiresAt < now {
+			continue
+		}
+		if strings.TrimSpace(segmentsJSON) != "" {
+			var segments []*LiveQuoteSegment
+			if err := json.Unmarshal([]byte(segmentsJSON), &segments); err == nil {
+				item.RecentSegments = segments
+			}
+		}
+		out = append(out, &item)
+	}
+	return LiveQuoteListResp{Quotes: out}, nil
 }
 
 func (s *Service) AcceptDeal(req DealAcceptReq) (DealAcceptResp, error) {

@@ -144,3 +144,34 @@ type DemandPublishPaidResp struct {
 	UpdatedTxID   string `protobuf:"bytes,6,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
 	Error         string `protobuf:"bytes,7,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
 }
+
+// LiveDemandPublishPaidReq/Resp 是“直播需求广播 + 扣费”的组合接口。
+// 设计说明：
+// - 网关只负责付费发布和广播 live demand；
+// - 真正的直播 segment 交易仍走后续 c2c。
+type LiveDemandPublishPaidReq struct {
+	ClientID string `protobuf:"bytes,1,opt,name=client_id,json=clientId,proto3" json:"client_id"`
+
+	StreamID         string   `protobuf:"bytes,2,opt,name=stream_id,json=streamId,proto3" json:"stream_id"`
+	HaveSegmentIndex int64    `protobuf:"varint,3,opt,name=have_segment_index,json=haveSegmentIndex,proto3" json:"have_segment_index"`
+	Window           uint32   `protobuf:"varint,4,opt,name=window,proto3" json:"window"`
+	BuyerAddrs       []string `protobuf:"bytes,5,rep,name=buyer_addrs,json=buyerAddrs,proto3" json:"buyer_addrs,omitempty"`
+	SpendTxID        string   `protobuf:"bytes,6,opt,name=spend_txid,json=spendTxid,proto3" json:"spend_txid"`
+
+	SequenceNumber      uint32 `protobuf:"varint,7,opt,name=sequence_number,json=sequenceNumber,proto3" json:"sequence_number"`
+	ServerAmount        uint64 `protobuf:"varint,8,opt,name=server_amount,json=serverAmount,proto3" json:"server_amount"`
+	ChargeAmountSatoshi uint64 `protobuf:"varint,9,opt,name=charge_amount_satoshi,json=chargeAmountSatoshi,proto3" json:"charge_amount_satoshi"`
+	Fee                 uint64 `protobuf:"varint,10,opt,name=fee,proto3" json:"fee"`
+	ClientSignature     []byte `protobuf:"bytes,11,opt,name=client_signature,json=clientSignature,proto3" json:"signature"`
+	ChargeReason        string `protobuf:"bytes,12,opt,name=charge_reason,json=chargeReason,proto3" json:"charge_reason,omitempty"` // 默认 live_demand_publish_fee
+}
+
+type LiveDemandPublishPaidResp struct {
+	Success       bool   `protobuf:"varint,1,opt,name=success,proto3" json:"success"`
+	Status        string `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
+	DemandID      string `protobuf:"bytes,3,opt,name=demand_id,json=demandId,proto3" json:"demand_id,omitempty"`
+	Published     bool   `protobuf:"varint,4,opt,name=published,proto3" json:"published"`
+	ChargedAmount uint64 `protobuf:"varint,5,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
+	UpdatedTxID   string `protobuf:"bytes,6,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
+	Error         string `protobuf:"bytes,7,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+}

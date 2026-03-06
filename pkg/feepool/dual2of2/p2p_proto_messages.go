@@ -57,3 +57,11 @@ func (*DemandPublishPaidReq) ProtoMessage()    {}
 func (m *DemandPublishPaidResp) Reset()         { *m = DemandPublishPaidResp{} }
 func (m *DemandPublishPaidResp) String() string { return oldproto.CompactTextString(m) }
 func (*DemandPublishPaidResp) ProtoMessage()    {}
+
+func (m *LiveDemandPublishPaidReq) Reset()         { *m = LiveDemandPublishPaidReq{} }
+func (m *LiveDemandPublishPaidReq) String() string { return oldproto.CompactTextString(m) }
+func (*LiveDemandPublishPaidReq) ProtoMessage()    {}
+
+func (m *LiveDemandPublishPaidResp) Reset()         { *m = LiveDemandPublishPaidResp{} }
+func (m *LiveDemandPublishPaidResp) String() string { return oldproto.CompactTextString(m) }
+func (*LiveDemandPublishPaidResp) ProtoMessage()    {}

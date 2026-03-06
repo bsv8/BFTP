@@ -10,6 +10,14 @@ func (m *PublishDemandResp) Reset()         { *m = PublishDemandResp{} }
 func (m *PublishDemandResp) String() string { return oldproto.CompactTextString(m) }
 func (*PublishDemandResp) ProtoMessage()    {}
 
+func (m *PublishLiveDemandReq) Reset()         { *m = PublishLiveDemandReq{} }
+func (m *PublishLiveDemandReq) String() string { return oldproto.CompactTextString(m) }
+func (*PublishLiveDemandReq) ProtoMessage()    {}
+
+func (m *PublishLiveDemandResp) Reset()         { *m = PublishLiveDemandResp{} }
+func (m *PublishLiveDemandResp) String() string { return oldproto.CompactTextString(m) }
+func (*PublishLiveDemandResp) ProtoMessage()    {}
+
 func (m *QuoteSubmitReq) Reset()         { *m = QuoteSubmitReq{} }
 func (m *QuoteSubmitReq) String() string { return oldproto.CompactTextString(m) }
 func (*QuoteSubmitReq) ProtoMessage()    {}
@@ -37,6 +45,38 @@ func (*DemandAnnounceReq) ProtoMessage()    {}
 func (m *DemandAnnounceResp) Reset()         { *m = DemandAnnounceResp{} }
 func (m *DemandAnnounceResp) String() string { return oldproto.CompactTextString(m) }
 func (*DemandAnnounceResp) ProtoMessage()    {}
+
+func (m *LiveDemandAnnounceReq) Reset()         { *m = LiveDemandAnnounceReq{} }
+func (m *LiveDemandAnnounceReq) String() string { return oldproto.CompactTextString(m) }
+func (*LiveDemandAnnounceReq) ProtoMessage()    {}
+
+func (m *LiveDemandAnnounceResp) Reset()         { *m = LiveDemandAnnounceResp{} }
+func (m *LiveDemandAnnounceResp) String() string { return oldproto.CompactTextString(m) }
+func (*LiveDemandAnnounceResp) ProtoMessage()    {}
+
+func (m *LiveQuoteSegment) Reset()         { *m = LiveQuoteSegment{} }
+func (m *LiveQuoteSegment) String() string { return oldproto.CompactTextString(m) }
+func (*LiveQuoteSegment) ProtoMessage()    {}
+
+func (m *LiveQuoteSubmitReq) Reset()         { *m = LiveQuoteSubmitReq{} }
+func (m *LiveQuoteSubmitReq) String() string { return oldproto.CompactTextString(m) }
+func (*LiveQuoteSubmitReq) ProtoMessage()    {}
+
+func (m *LiveQuoteSubmitResp) Reset()         { *m = LiveQuoteSubmitResp{} }
+func (m *LiveQuoteSubmitResp) String() string { return oldproto.CompactTextString(m) }
+func (*LiveQuoteSubmitResp) ProtoMessage()    {}
+
+func (m *LiveQuoteListReq) Reset()         { *m = LiveQuoteListReq{} }
+func (m *LiveQuoteListReq) String() string { return oldproto.CompactTextString(m) }
+func (*LiveQuoteListReq) ProtoMessage()    {}
+
+func (m *LiveQuoteItem) Reset()         { *m = LiveQuoteItem{} }
+func (m *LiveQuoteItem) String() string { return oldproto.CompactTextString(m) }
+func (*LiveQuoteItem) ProtoMessage()    {}
+
+func (m *LiveQuoteListResp) Reset()         { *m = LiveQuoteListResp{} }
+func (m *LiveQuoteListResp) String() string { return oldproto.CompactTextString(m) }
+func (*LiveQuoteListResp) ProtoMessage()    {}
 
 func (m *DealAcceptReq) Reset()         { *m = DealAcceptReq{} }
 func (m *DealAcceptReq) String() string { return oldproto.CompactTextString(m) }

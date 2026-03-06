@@ -21,5 +21,6 @@ const (
 
 	// 需求广播：带支付的发布接口（发布扣费 + 写入 demand）。
 	ProtoDemandPublishPaid protocol.ID = "/bsv-transfer/demand/publish_paid/1.0.0"
+	// 直播需求广播：带支付的发布接口（发布扣费 + 写入 live demand）。
+	ProtoLiveDemandPublishPaid protocol.ID = "/bsv-transfer/live/demand/publish_paid/1.0.0"
 )
-
