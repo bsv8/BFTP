@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -15,6 +16,7 @@ const (
 	LevelBusiness  = "business"
 	LevelImportant = "important"
 	LevelError     = "error"
+	LevelNone      = "none"
 
 	CategorySystem   = "system"
 	CategoryBusiness = "business"
@@ -31,7 +33,8 @@ type Event struct {
 
 type loggerState struct {
 	mu             sync.Mutex
-	file           *os.File
+	systemFile     *os.File
+	businessFile   *os.File
 	consoleMinRank int
 	nextListenerID int
 	listeners      map[int]func(Event)
@@ -43,19 +46,42 @@ func Init(filePath string, consoleMinLevel string) error {
 	state.mu.Lock()
 	defer state.mu.Unlock()
 
-	if state.file != nil {
-		_ = state.file.Close()
-		state.file = nil
+	if state.systemFile != nil {
+		_ = state.systemFile.Close()
+		state.systemFile = nil
 	}
-	if filePath != "" {
-		if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+	if state.businessFile != nil {
+		_ = state.businessFile.Close()
+		state.businessFile = nil
+	}
+	systemPath, businessPath := ResolveSplitFilePaths(filePath)
+	if systemPath != "" {
+		if err := os.MkdirAll(filepath.Dir(systemPath), 0o755); err != nil {
 			return err
 		}
-		f, err := os.OpenFile(filePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+		f, err := os.OpenFile(systemPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 		if err != nil {
 			return err
 		}
-		state.file = f
+		state.systemFile = f
+	}
+	if businessPath != "" {
+		if err := os.MkdirAll(filepath.Dir(businessPath), 0o755); err != nil {
+			if state.systemFile != nil {
+				_ = state.systemFile.Close()
+				state.systemFile = nil
+			}
+			return err
+		}
+		f, err := os.OpenFile(businessPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+		if err != nil {
+			if state.systemFile != nil {
+				_ = state.systemFile.Close()
+				state.systemFile = nil
+			}
+			return err
+		}
+		state.businessFile = f
 	}
 	state.consoleMinRank = rank(consoleMinLevel)
 	return nil
@@ -64,12 +90,20 @@ func Init(filePath string, consoleMinLevel string) error {
 func Close() error {
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if state.file == nil {
-		return nil
+	var firstErr error
+	if state.systemFile != nil {
+		if err := state.systemFile.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		state.systemFile = nil
 	}
-	err := state.file.Close()
-	state.file = nil
-	return err
+	if state.businessFile != nil {
+		if err := state.businessFile.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		state.businessFile = nil
+	}
+	return firstErr
 }
 
 // AddListener 注册一个事件监听器（进程内“消息系统”挂钩点）。
@@ -142,8 +176,14 @@ func write(level, category, service, name string, fields map[string]any) {
 	var ls []func(Event)
 	state.mu.Lock()
 
-	if state.file != nil {
-		_, _ = fmt.Fprintln(state.file, line)
+	if category == CategoryBusiness {
+		if state.businessFile != nil {
+			_, _ = fmt.Fprintln(state.businessFile, line)
+		}
+	} else {
+		if state.systemFile != nil {
+			_, _ = fmt.Fprintln(state.systemFile, line)
+		}
 	}
 	if rank(level) >= state.consoleMinRank {
 		fmt.Println(line)
@@ -176,7 +216,27 @@ func rank(level string) int {
 		return 40
 	case LevelError:
 		return 50
+	case LevelNone:
+		return 1000
 	default:
 		return 30
 	}
+}
+
+// ResolveSplitFilePaths 根据基础日志文件路径生成 system/business 两份 JSONL 路径。
+// 例如: /x/bitfs.log -> /x/bitfs.system.jsonl 与 /x/bitfs.business.jsonl
+func ResolveSplitFilePaths(filePath string) (systemPath, businessPath string) {
+	base := strings.TrimSpace(filePath)
+	if base == "" {
+		return "", ""
+	}
+	base = filepath.Clean(base)
+	dir := filepath.Dir(base)
+	name := filepath.Base(base)
+	ext := filepath.Ext(name)
+	stem := strings.TrimSuffix(name, ext)
+	if stem == "" {
+		stem = name
+	}
+	return filepath.Join(dir, stem+".system.jsonl"), filepath.Join(dir, stem+".business.jsonl")
 }
