@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bsv8/BFTP/pkg/obs"
 	ec "github.com/bsv-blockchain/go-sdk/primitives/ec"
 	tx "github.com/bsv-blockchain/go-sdk/transaction"
+	"github.com/bsv8/BFTP/pkg/obs"
 	ce "github.com/bsv8/MultisigPool/pkg/dual_endpoint"
 	"github.com/bsv8/MultisigPool/pkg/libs"
 )
@@ -50,8 +50,8 @@ const (
 )
 
 func (s *GatewayService) Info(clientID string) (InfoResp, error) {
-	if strings.TrimSpace(clientID) == "" {
-		return InfoResp{}, fmt.Errorf("client_id required")
+	if _, err := NormalizeClientIDStrict(clientID); err != nil {
+		return InfoResp{}, fmt.Errorf("invalid client_id: %w", err)
 	}
 	return InfoResp{
 		Status:                   "ok",
@@ -83,7 +83,7 @@ func (s *GatewayService) Create(req CreateReq) (CreateResp, error) {
 	if req.SequenceNumber == 0 {
 		return CreateResp{}, fmt.Errorf("sequence_number must be >= 1")
 	}
-	clientBSVPubHex, err := Libp2pMarshalPubHexToSecpCompressedHex(req.ClientID)
+	clientBSVPubHex, err := NormalizeClientIDStrict(req.ClientID)
 	if err != nil {
 		return CreateResp{}, err
 	}
@@ -132,18 +132,18 @@ func (s *GatewayService) Create(req CreateReq) (CreateResp, error) {
 	}
 
 	// 幂等：若 spend_txid 已存在，则直接返回（以数据库为准）。
-		if old, found, loadErr := LoadSessionBySpendTxID(s.DB, spendTxID); loadErr == nil && found {
-			return CreateResp{
-				SpendTxID:     old.SpendTxID,
-				ServerSig:     append([]byte(nil), *serverSig...),
-				SpendTxFeeSat: old.SpendTxFeeSat,
-				PoolAmountSat: old.PoolAmountSat,
-			}, nil
-		}
+	if old, found, loadErr := LoadSessionBySpendTxID(s.DB, spendTxID); loadErr == nil && found {
+		return CreateResp{
+			SpendTxID:     old.SpendTxID,
+			ServerSig:     append([]byte(nil), *serverSig...),
+			SpendTxFeeSat: old.SpendTxFeeSat,
+			PoolAmountSat: old.PoolAmountSat,
+		}, nil
+	}
 
 	row := GatewaySessionRow{
 		SpendTxID:                 spendTxID,
-		ClientID:                  strings.ToLower(strings.TrimSpace(req.ClientID)),
+		ClientID:                  clientBSVPubHex,
 		ClientBSVCompressedPubHex: clientBSVPubHex,
 		ServerBSVCompressedPubHex: strings.ToLower(serverActor.PubHex),
 		InputAmountSat:            req.InputAmount,
@@ -238,6 +238,9 @@ func (s *GatewayService) BaseTx(req BaseTxReq) (BaseTxResp, error) {
 	if err := UpdateSession(s.DB, row); err != nil {
 		return BaseTxResp{}, err
 	}
+	if err := syncServiceStateTx(s.DB, row.ClientID, nil, "session_activated", row.SpendTxID, ""); err != nil {
+		return BaseTxResp{}, err
+	}
 	obs.Business("bitcast-gateway", "fee_pool_base_tx_broadcasted", map[string]any{
 		"spend_txid": row.SpendTxID,
 		"base_txid":  baseTxID,
@@ -323,7 +326,26 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 	if chargeReason == "" {
 		chargeReason = "unspecified"
 	}
-	if err := InsertChargeEvent(s.DB, row.ClientID, row.SpendTxID, row.Sequence, chargeReason, req.ChargeAmountSatoshi); err != nil {
+	nowUnix := time.Now().Unix()
+	billingCycleSeconds := s.Params.BillingCycleSeconds
+	effectiveUntilUnix := nowUnix
+	if chargeReason == "listen_cycle_fee" {
+		if billingCycleSeconds == 0 {
+			return PayConfirmResp{}, fmt.Errorf("billing_cycle_seconds must be configured for listen_cycle_fee")
+		}
+		effectiveUntilUnix = nowUnix + int64(billingCycleSeconds)
+	}
+	if err := InsertChargeEvent(
+		s.DB,
+		row.ClientID,
+		row.SpendTxID,
+		row.Sequence,
+		chargeReason,
+		req.ChargeAmountSatoshi,
+		billingCycleSeconds,
+		effectiveUntilUnix,
+		row.ClientAmountSat,
+	); err != nil {
 		return PayConfirmResp{}, err
 	}
 	updatedTxID := mergedTx.TxID().String()
@@ -420,6 +442,9 @@ func (s *GatewayService) Close(req CloseReq) (CloseResp, error) {
 	if err := UpdateSession(s.DB, row); err != nil {
 		return CloseResp{}, err
 	}
+	if err := syncServiceStateTx(s.DB, row.ClientID, nil, "session_closed", row.SpendTxID, ""); err != nil {
+		return CloseResp{}, err
+	}
 	obs.Business("bitcast-gateway", "fee_pool_close_broadcasted", map[string]any{
 		"spend_txid": row.SpendTxID,
 		"final_txid": finalTxID,
@@ -433,13 +458,12 @@ func (s *GatewayService) State(req StateReq) (StateResp, error) {
 	if s.DB == nil {
 		return StateResp{}, fmt.Errorf("db not initialized")
 	}
-	clientID := strings.ToLower(strings.TrimSpace(req.ClientID))
-	if clientID == "" {
-		return StateResp{}, fmt.Errorf("client_id required")
+	clientID, err := NormalizeClientIDStrict(req.ClientID)
+	if err != nil {
+		return StateResp{}, fmt.Errorf("invalid client_id: %w", err)
 	}
 	var row GatewaySessionRow
 	var found bool
-	var err error
 	if strings.TrimSpace(req.SpendTxID) != "" {
 		row, found, err = LoadSessionBySpendTxID(s.DB, req.SpendTxID)
 	} else {
@@ -528,6 +552,13 @@ func (s *GatewayService) PassiveCloseExpiredOnce() error {
 				"spend_txid": row.SpendTxID,
 				"final_txid": finalTxID,
 				"error":      uErr.Error(),
+			})
+			continue
+		}
+		if syncErr := syncServiceStateTx(s.DB, row.ClientID, nil, "session_passive_closed", row.SpendTxID, ""); syncErr != nil {
+			obs.Error("bitcast-gateway", "fee_pool_passive_close_service_sync_failed", map[string]any{
+				"spend_txid": row.SpendTxID,
+				"error":      syncErr.Error(),
 			})
 			continue
 		}

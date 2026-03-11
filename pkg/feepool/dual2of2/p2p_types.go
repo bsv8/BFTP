@@ -1,7 +1,8 @@
 package dual2of2
 
 // InfoReq/InfoResp 用于 client 启动时获取网关的费用池握手参数。
-// 说明：这里的“client_id”沿用现有 p2prpc 语义：必须等于 SignedEnvelopePB.sender_pubkey（hex，libp2p MarshalPublicKey 格式）。
+// 说明：client_id 规范为 secp256k1 压缩公钥 hex（33 字节，02/03 开头，小写）。
+// 网关会兼容旧输入（libp2p MarshalPublicKey hex）并在落库前归一化到上述格式。
 type InfoReq struct {
 	ClientID string `protobuf:"bytes,1,opt,name=client_id,json=clientId,proto3" json:"client_id"`
 }
