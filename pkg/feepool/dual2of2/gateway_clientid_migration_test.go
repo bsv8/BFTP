@@ -16,7 +16,7 @@ func TestMigrateGatewayClientIDs_ReconcileClosesLegacyOpenInterruption(t *testin
 	now := int64(1773212000)
 
 	_, err := db.Exec(
-		`INSERT INTO fee_pool_sessions(spend_txid,client_id,client_bsv_pubkey_hex,server_bsv_pubkey_hex,input_amount_satoshi,pool_amount_satoshi,spend_tx_fee_satoshi,sequence_num,server_amount_satoshi,client_amount_satoshi,base_txid,final_txid,base_tx_hex,current_tx_hex,status,created_at_unix,updated_at_unix)
+		`INSERT INTO fee_pool_sessions(spend_txid,client_id,client_bsv_pubkey_hex,server_bsv_pubkey_hex,input_amount_satoshi,pool_amount_satoshi,spend_tx_fee_satoshi,sequence_num,server_amount_satoshi,client_amount_satoshi,base_txid,final_txid,base_tx_hex,current_tx_hex,lifecycle_state,created_at_unix,updated_at_unix)
 		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		"tx_active_1", canonicalID, canonicalID, "02aa", 600, 600, 1, 1, 1, 598, "base1", "", "00", "00", "active", now, now,
 	)
@@ -124,7 +124,7 @@ func TestLoadLatestSessionByClientID_AcceptsLegacyAlias(t *testing.T) {
 		FinalTxID:                 "",
 		BaseTxHex:                 "00",
 		CurrentTxHex:              "00",
-		Status:                    "active",
+		LifecycleState:            "active",
 	}); err != nil {
 		t.Fatalf("insert session failed: %v", err)
 	}

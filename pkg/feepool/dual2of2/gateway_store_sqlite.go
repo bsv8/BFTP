@@ -27,7 +27,13 @@ type GatewaySessionRow struct {
 	BaseTxHex    string
 	CurrentTxHex string
 
-	Status    string
+	LifecycleState string
+	FrozenReason   string
+
+	LastSubmitError         string
+	SubmitRetryCount        int
+	LastSubmitAttemptAtUnix int64
+
 	CreatedAt int64
 	UpdatedAt int64
 }
@@ -62,12 +68,16 @@ func InitGatewayStore(db *sql.DB) error {
 			base_tx_hex TEXT NOT NULL,
 			current_tx_hex TEXT NOT NULL,
 
-			status TEXT NOT NULL,
+			lifecycle_state TEXT NOT NULL DEFAULT 'pending_base_tx',
+			frozen_reason TEXT NOT NULL DEFAULT '',
+			last_submit_error TEXT NOT NULL DEFAULT '',
+			submit_retry_count INTEGER NOT NULL DEFAULT 0,
+			last_submit_attempt_at_unix INTEGER NOT NULL DEFAULT 0,
+
 			created_at_unix INTEGER NOT NULL,
 			updated_at_unix INTEGER NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_fee_pool_client_id ON fee_pool_sessions(client_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_fee_pool_status ON fee_pool_sessions(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_fee_pool_updated_at ON fee_pool_sessions(updated_at_unix DESC)`,
 		`CREATE TABLE IF NOT EXISTS fee_pool_charge_events (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -167,6 +177,13 @@ func InitGatewayStore(db *sql.DB) error {
 	if err := ensureChargeEventColumns(db); err != nil {
 		return err
 	}
+	// 旧库升级：补齐 lifecycle 状态机列，并回填初始值。
+	if err := ensureSessionLifecycleColumns(db); err != nil {
+		return err
+	}
+	if err := ensureSingleActiveIndex(db); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -189,6 +206,80 @@ func ensureChargeEventColumns(db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+func ensureSessionLifecycleColumns(db *sql.DB) error {
+	if db == nil {
+		return fmt.Errorf("db is nil")
+	}
+	stmts := []string{
+		`ALTER TABLE fee_pool_sessions ADD COLUMN lifecycle_state TEXT NOT NULL DEFAULT 'pending_base_tx'`,
+		`ALTER TABLE fee_pool_sessions ADD COLUMN frozen_reason TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE fee_pool_sessions ADD COLUMN last_submit_error TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE fee_pool_sessions ADD COLUMN submit_retry_count INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE fee_pool_sessions ADD COLUMN last_submit_attempt_at_unix INTEGER NOT NULL DEFAULT 0`,
+	}
+	for _, stmt := range stmts {
+		if _, err := db.Exec(stmt); err != nil {
+			lower := strings.ToLower(strings.TrimSpace(err.Error()))
+			if strings.Contains(lower, "duplicate column name") {
+				continue
+			}
+			return err
+		}
+	}
+	hasStatus, err := tableHasColumn(db, "fee_pool_sessions", "status")
+	if err != nil {
+		return err
+	}
+	if hasStatus {
+		if _, err := db.Exec(`
+			UPDATE fee_pool_sessions
+			SET lifecycle_state=CASE
+				WHEN LOWER(TRIM(COALESCE(status,''))) IN ('active','open','running','serving','payable') THEN 'active'
+				WHEN LOWER(TRIM(COALESCE(status,''))) IN ('frozen','paused','pause','blocked','hold') THEN 'frozen'
+				WHEN LOWER(TRIM(COALESCE(status,''))) IN ('should_submit','near_expiry','expired','should_close','submit_pending') THEN 'should_submit'
+				WHEN LOWER(TRIM(COALESCE(status,''))) IN ('settled_external') THEN 'settled_external'
+				WHEN LOWER(TRIM(COALESCE(status,''))) IN ('closed','close','settled','done','completed','finalized') THEN 'closed'
+				ELSE 'pending_base_tx'
+			END
+			WHERE TRIM(COALESCE(lifecycle_state,''))=''
+			   OR (LOWER(TRIM(COALESCE(lifecycle_state,'')))='pending_base_tx' AND LOWER(TRIM(COALESCE(status,'')))<>'pending_base_tx')
+		`); err != nil {
+			return err
+		}
+		if err := rebuildFeePoolSessionsWithoutStatus(db); err != nil {
+			return err
+		}
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_fee_pool_lifecycle ON fee_pool_sessions(lifecycle_state)`); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureSingleActiveIndex(db *sql.DB) error {
+	if db == nil {
+		return fmt.Errorf("db is nil")
+	}
+	// 启动修复历史脏数据：同 client 多个 active 时，保留最新 updated_at 的一条。
+	if _, err := db.Exec(`
+		UPDATE fee_pool_sessions
+		SET lifecycle_state='frozen',frozen_reason='startup_multi_active_reconcile'
+		WHERE lifecycle_state='active'
+		  AND spend_txid IN (
+			SELECT spend_txid FROM (
+				SELECT spend_txid,
+					   ROW_NUMBER() OVER(PARTITION BY client_id ORDER BY updated_at_unix DESC, created_at_unix DESC, spend_txid DESC) AS rn
+				FROM fee_pool_sessions
+				WHERE lifecycle_state='active'
+			) t
+			WHERE t.rn > 1
+		  )`); err != nil {
+		return err
+	}
+	_, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uq_fee_pool_client_active ON fee_pool_sessions(client_id) WHERE lifecycle_state='active'`)
+	return err
 }
 
 func SetGatewayAdminConfig(db *sql.DB, key string, value string) error {
@@ -381,6 +472,21 @@ func ListClientsByChargeReason(db *sql.DB, reason string) ([]string, error) {
 	return out, nil
 }
 
+const sessionSelectColumns = `spend_txid,client_id,client_bsv_pubkey_hex,server_bsv_pubkey_hex,input_amount_satoshi,pool_amount_satoshi,spend_tx_fee_satoshi,sequence_num,server_amount_satoshi,client_amount_satoshi,base_txid,final_txid,base_tx_hex,current_tx_hex,lifecycle_state,frozen_reason,last_submit_error,submit_retry_count,last_submit_attempt_at_unix,created_at_unix,updated_at_unix`
+
+func sessionScanArgs(row *GatewaySessionRow) []any {
+	return []any{
+		&row.SpendTxID,
+		&row.ClientID, &row.ClientBSVCompressedPubHex, &row.ServerBSVCompressedPubHex,
+		&row.InputAmountSat, &row.PoolAmountSat, &row.SpendTxFeeSat,
+		&row.Sequence, &row.ServerAmountSat, &row.ClientAmountSat,
+		&row.BaseTxID, &row.FinalTxID,
+		&row.BaseTxHex, &row.CurrentTxHex,
+		&row.LifecycleState, &row.FrozenReason, &row.LastSubmitError, &row.SubmitRetryCount, &row.LastSubmitAttemptAtUnix,
+		&row.CreatedAt, &row.UpdatedAt,
+	}
+}
+
 func LoadLatestSessionByClientID(db *sql.DB, clientID string) (GatewaySessionRow, bool, error) {
 	clientID = NormalizeClientIDLoose(clientID)
 	if clientID == "" {
@@ -391,25 +497,79 @@ func LoadLatestSessionByClientID(db *sql.DB, clientID string) (GatewaySessionRow
 		return GatewaySessionRow{}, false, fmt.Errorf("client_id required")
 	}
 	var row GatewaySessionRow
-	query := `SELECT spend_txid,client_id,client_bsv_pubkey_hex,server_bsv_pubkey_hex,input_amount_satoshi,pool_amount_satoshi,spend_tx_fee_satoshi,sequence_num,server_amount_satoshi,client_amount_satoshi,base_txid,final_txid,base_tx_hex,current_tx_hex,status,created_at_unix,updated_at_unix
-		 FROM fee_pool_sessions
-		 WHERE client_id=?
-		 ORDER BY updated_at_unix DESC
-		 LIMIT 1`
+	query := `SELECT ` + sessionSelectColumns + `
+			 FROM fee_pool_sessions
+			 WHERE client_id=?
+			 ORDER BY updated_at_unix DESC
+			 LIMIT 1`
 	args := []any{aliases[0]}
 	if len(aliases) > 1 {
 		query = strings.ReplaceAll(query, "client_id=?", "client_id IN (?,?)")
 		args = []any{aliases[0], aliases[1]}
 	}
-	err := db.QueryRow(query, args...).Scan(
-		&row.SpendTxID,
-		&row.ClientID, &row.ClientBSVCompressedPubHex, &row.ServerBSVCompressedPubHex,
-		&row.InputAmountSat, &row.PoolAmountSat, &row.SpendTxFeeSat,
-		&row.Sequence, &row.ServerAmountSat, &row.ClientAmountSat,
-		&row.BaseTxID, &row.FinalTxID,
-		&row.BaseTxHex, &row.CurrentTxHex,
-		&row.Status, &row.CreatedAt, &row.UpdatedAt,
-	)
+	err := db.QueryRow(query, args...).Scan(sessionScanArgs(&row)...)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return GatewaySessionRow{}, false, nil
+		}
+		return GatewaySessionRow{}, false, err
+	}
+	return row, true, nil
+}
+
+// LoadPreferredSessionByClientID 优先返回 active 会话；若没有 active，则回退到最新会话。
+func LoadPreferredSessionByClientID(db *sql.DB, clientID string) (GatewaySessionRow, bool, error) {
+	clientID = NormalizeClientIDLoose(clientID)
+	if clientID == "" {
+		return GatewaySessionRow{}, false, fmt.Errorf("client_id required")
+	}
+	aliases := ClientIDAliasesForQuery(clientID)
+	if len(aliases) == 0 {
+		return GatewaySessionRow{}, false, fmt.Errorf("client_id required")
+	}
+	var row GatewaySessionRow
+	// 先找 active，保证 rotate 后默认视图仍指向当前服务中的池。
+	queryActive := `SELECT ` + sessionSelectColumns + `
+			 FROM fee_pool_sessions
+			 WHERE client_id=? AND lifecycle_state='active'
+			 ORDER BY updated_at_unix DESC
+			 LIMIT 1`
+	args := []any{aliases[0]}
+	if len(aliases) > 1 {
+		queryActive = strings.ReplaceAll(queryActive, "client_id=?", "client_id IN (?,?)")
+		args = []any{aliases[0], aliases[1]}
+	}
+	err := db.QueryRow(queryActive, args...).Scan(sessionScanArgs(&row)...)
+	if err == nil {
+		return row, true, nil
+	}
+	if err != sql.ErrNoRows {
+		return GatewaySessionRow{}, false, err
+	}
+	return LoadLatestSessionByClientID(db, clientID)
+}
+
+func LoadLatestNonClosedSessionByClientID(db *sql.DB, clientID string) (GatewaySessionRow, bool, error) {
+	clientID = NormalizeClientIDLoose(clientID)
+	if clientID == "" {
+		return GatewaySessionRow{}, false, fmt.Errorf("client_id required")
+	}
+	aliases := ClientIDAliasesForQuery(clientID)
+	if len(aliases) == 0 {
+		return GatewaySessionRow{}, false, fmt.Errorf("client_id required")
+	}
+	var row GatewaySessionRow
+	query := `SELECT ` + sessionSelectColumns + `
+		FROM fee_pool_sessions
+		WHERE client_id=? AND lifecycle_state NOT IN ('closed','settled_external')
+		ORDER BY updated_at_unix DESC
+		LIMIT 1`
+	args := []any{aliases[0]}
+	if len(aliases) > 1 {
+		query = strings.ReplaceAll(query, "client_id=?", "client_id IN (?,?)")
+		args = []any{aliases[0], aliases[1]}
+	}
+	err := db.QueryRow(query, args...).Scan(sessionScanArgs(&row)...)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return GatewaySessionRow{}, false, nil
@@ -426,17 +586,9 @@ func LoadSessionBySpendTxID(db *sql.DB, spendTxID string) (GatewaySessionRow, bo
 	}
 	var row GatewaySessionRow
 	err := db.QueryRow(
-		`SELECT spend_txid,client_id,client_bsv_pubkey_hex,server_bsv_pubkey_hex,input_amount_satoshi,pool_amount_satoshi,spend_tx_fee_satoshi,sequence_num,server_amount_satoshi,client_amount_satoshi,base_txid,final_txid,base_tx_hex,current_tx_hex,status,created_at_unix,updated_at_unix
-		 FROM fee_pool_sessions WHERE spend_txid=?`, spendTxID,
-	).Scan(
-		&row.SpendTxID,
-		&row.ClientID, &row.ClientBSVCompressedPubHex, &row.ServerBSVCompressedPubHex,
-		&row.InputAmountSat, &row.PoolAmountSat, &row.SpendTxFeeSat,
-		&row.Sequence, &row.ServerAmountSat, &row.ClientAmountSat,
-		&row.BaseTxID, &row.FinalTxID,
-		&row.BaseTxHex, &row.CurrentTxHex,
-		&row.Status, &row.CreatedAt, &row.UpdatedAt,
-	)
+		`SELECT `+sessionSelectColumns+`
+			 FROM fee_pool_sessions WHERE spend_txid=?`, spendTxID,
+	).Scan(sessionScanArgs(&row)...)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return GatewaySessionRow{}, false, nil
@@ -454,9 +606,13 @@ func InsertSession(db *sql.DB, row GatewaySessionRow) error {
 	if row.ClientID == "" {
 		return fmt.Errorf("client_id required")
 	}
+	row.LifecycleState = strings.ToLower(strings.TrimSpace(row.LifecycleState))
+	if row.LifecycleState == "" {
+		row.LifecycleState = "pending_base_tx"
+	}
 	_, err := db.Exec(
-		`INSERT INTO fee_pool_sessions(spend_txid,client_id,client_bsv_pubkey_hex,server_bsv_pubkey_hex,input_amount_satoshi,pool_amount_satoshi,spend_tx_fee_satoshi,sequence_num,server_amount_satoshi,client_amount_satoshi,base_txid,final_txid,base_tx_hex,current_tx_hex,status,created_at_unix,updated_at_unix)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		`INSERT INTO fee_pool_sessions(spend_txid,client_id,client_bsv_pubkey_hex,server_bsv_pubkey_hex,input_amount_satoshi,pool_amount_satoshi,spend_tx_fee_satoshi,sequence_num,server_amount_satoshi,client_amount_satoshi,base_txid,final_txid,base_tx_hex,current_tx_hex,lifecycle_state,frozen_reason,last_submit_error,submit_retry_count,last_submit_attempt_at_unix,created_at_unix,updated_at_unix)
+		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		row.SpendTxID,
 		row.ClientID,
 		strings.ToLower(strings.TrimSpace(row.ClientBSVCompressedPubHex)),
@@ -465,7 +621,11 @@ func InsertSession(db *sql.DB, row GatewaySessionRow) error {
 		row.Sequence, row.ServerAmountSat, row.ClientAmountSat,
 		strings.TrimSpace(row.BaseTxID), strings.TrimSpace(row.FinalTxID),
 		row.BaseTxHex, row.CurrentTxHex,
-		strings.TrimSpace(row.Status),
+		row.LifecycleState,
+		strings.TrimSpace(row.FrozenReason),
+		strings.TrimSpace(row.LastSubmitError),
+		row.SubmitRetryCount,
+		row.LastSubmitAttemptAtUnix,
 		row.CreatedAt, row.UpdatedAt,
 	)
 	return err
@@ -473,27 +633,54 @@ func InsertSession(db *sql.DB, row GatewaySessionRow) error {
 
 func UpdateSession(db *sql.DB, row GatewaySessionRow) error {
 	row.UpdatedAt = time.Now().Unix()
+	row.LifecycleState = strings.ToLower(strings.TrimSpace(row.LifecycleState))
+	if row.LifecycleState == "" {
+		return fmt.Errorf("lifecycle_state required")
+	}
 	_, err := db.Exec(
 		`UPDATE fee_pool_sessions
-		 SET sequence_num=?,server_amount_satoshi=?,client_amount_satoshi=?,base_txid=?,final_txid=?,base_tx_hex=?,current_tx_hex=?,status=?,updated_at_unix=?
+		 SET sequence_num=?,server_amount_satoshi=?,client_amount_satoshi=?,base_txid=?,final_txid=?,base_tx_hex=?,current_tx_hex=?,lifecycle_state=?,frozen_reason=?,last_submit_error=?,submit_retry_count=?,last_submit_attempt_at_unix=?,updated_at_unix=?
 		 WHERE spend_txid=?`,
 		row.Sequence, row.ServerAmountSat, row.ClientAmountSat,
 		strings.TrimSpace(row.BaseTxID), strings.TrimSpace(row.FinalTxID),
 		row.BaseTxHex, row.CurrentTxHex,
-		strings.TrimSpace(row.Status), row.UpdatedAt,
+		row.LifecycleState,
+		strings.TrimSpace(row.FrozenReason),
+		strings.TrimSpace(row.LastSubmitError),
+		row.SubmitRetryCount,
+		row.LastSubmitAttemptAtUnix,
+		row.UpdatedAt,
 		strings.TrimSpace(row.SpendTxID),
 	)
 	return err
 }
 
-func ListActiveSessions(db *sql.DB) ([]GatewaySessionRow, error) {
+func ListSessionsByLifecycleStates(db *sql.DB, states ...string) ([]GatewaySessionRow, error) {
 	if db == nil {
 		return nil, fmt.Errorf("db is nil")
 	}
+	if len(states) == 0 {
+		return nil, fmt.Errorf("states required")
+	}
+	clean := make([]string, 0, len(states))
+	args := make([]any, 0, len(states))
+	for _, st := range states {
+		v := strings.ToLower(strings.TrimSpace(st))
+		if v == "" {
+			continue
+		}
+		clean = append(clean, v)
+		args = append(args, v)
+	}
+	if len(clean) == 0 {
+		return nil, fmt.Errorf("states required")
+	}
+	holders := strings.TrimRight(strings.Repeat("?,", len(clean)), ",")
 	rows, err := db.Query(
-		`SELECT spend_txid,client_id,client_bsv_pubkey_hex,server_bsv_pubkey_hex,input_amount_satoshi,pool_amount_satoshi,spend_tx_fee_satoshi,sequence_num,server_amount_satoshi,client_amount_satoshi,base_txid,final_txid,base_tx_hex,current_tx_hex,status,created_at_unix,updated_at_unix
+		`SELECT `+sessionSelectColumns+`
 		 FROM fee_pool_sessions
-		 WHERE status='active'`,
+		 WHERE lifecycle_state IN (`+holders+`)`,
+		args...,
 	)
 	if err != nil {
 		return nil, err
@@ -503,15 +690,7 @@ func ListActiveSessions(db *sql.DB) ([]GatewaySessionRow, error) {
 	out := make([]GatewaySessionRow, 0, 16)
 	for rows.Next() {
 		var row GatewaySessionRow
-		if err := rows.Scan(
-			&row.SpendTxID,
-			&row.ClientID, &row.ClientBSVCompressedPubHex, &row.ServerBSVCompressedPubHex,
-			&row.InputAmountSat, &row.PoolAmountSat, &row.SpendTxFeeSat,
-			&row.Sequence, &row.ServerAmountSat, &row.ClientAmountSat,
-			&row.BaseTxID, &row.FinalTxID,
-			&row.BaseTxHex, &row.CurrentTxHex,
-			&row.Status, &row.CreatedAt, &row.UpdatedAt,
-		); err != nil {
+		if err := rows.Scan(sessionScanArgs(&row)...); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -520,4 +699,127 @@ func ListActiveSessions(db *sql.DB) ([]GatewaySessionRow, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+func FreezeOtherActiveSessionsByClientTx(tx *sql.Tx, clientID string, keepSpendTxID string, reason string, nowUnix int64) error {
+	if tx == nil {
+		return fmt.Errorf("tx is nil")
+	}
+	clientID = NormalizeClientIDLoose(clientID)
+	if clientID == "" {
+		return fmt.Errorf("client_id required")
+	}
+	_, err := tx.Exec(
+		`UPDATE fee_pool_sessions
+		 SET lifecycle_state='frozen',frozen_reason=?,updated_at_unix=?
+		 WHERE client_id=? AND lifecycle_state='active' AND spend_txid<>?`,
+		strings.TrimSpace(reason), nowUnix, clientID, strings.TrimSpace(keepSpendTxID),
+	)
+	return err
+}
+
+func tableHasColumn(db *sql.DB, table string, column string) (bool, error) {
+	if db == nil {
+		return false, fmt.Errorf("db is nil")
+	}
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name string
+		var ctype string
+		var notnull int
+		var dflt sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return false, err
+		}
+		if strings.EqualFold(strings.TrimSpace(name), strings.TrimSpace(column)) {
+			return true, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+func rebuildFeePoolSessionsWithoutStatus(db *sql.DB) error {
+	if db == nil {
+		return fmt.Errorf("db is nil")
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	if _, err = tx.Exec(`
+		CREATE TABLE IF NOT EXISTS fee_pool_sessions_new (
+			spend_txid TEXT PRIMARY KEY,
+			client_id TEXT NOT NULL,
+			client_bsv_pubkey_hex TEXT NOT NULL,
+			server_bsv_pubkey_hex TEXT NOT NULL,
+			input_amount_satoshi INTEGER NOT NULL,
+			pool_amount_satoshi INTEGER NOT NULL,
+			spend_tx_fee_satoshi INTEGER NOT NULL,
+			sequence_num INTEGER NOT NULL,
+			server_amount_satoshi INTEGER NOT NULL,
+			client_amount_satoshi INTEGER NOT NULL,
+			base_txid TEXT NOT NULL,
+			final_txid TEXT NOT NULL,
+			base_tx_hex TEXT NOT NULL,
+			current_tx_hex TEXT NOT NULL,
+			lifecycle_state TEXT NOT NULL DEFAULT 'pending_base_tx',
+			frozen_reason TEXT NOT NULL DEFAULT '',
+			last_submit_error TEXT NOT NULL DEFAULT '',
+			submit_retry_count INTEGER NOT NULL DEFAULT 0,
+			last_submit_attempt_at_unix INTEGER NOT NULL DEFAULT 0,
+			created_at_unix INTEGER NOT NULL,
+			updated_at_unix INTEGER NOT NULL
+		)`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`
+		INSERT INTO fee_pool_sessions_new(
+			spend_txid,client_id,client_bsv_pubkey_hex,server_bsv_pubkey_hex,
+			input_amount_satoshi,pool_amount_satoshi,spend_tx_fee_satoshi,sequence_num,server_amount_satoshi,client_amount_satoshi,
+			base_txid,final_txid,base_tx_hex,current_tx_hex,lifecycle_state,frozen_reason,last_submit_error,submit_retry_count,last_submit_attempt_at_unix,created_at_unix,updated_at_unix
+		)
+		SELECT
+			spend_txid,client_id,client_bsv_pubkey_hex,server_bsv_pubkey_hex,
+			input_amount_satoshi,pool_amount_satoshi,spend_tx_fee_satoshi,sequence_num,server_amount_satoshi,client_amount_satoshi,
+			base_txid,final_txid,base_tx_hex,current_tx_hex,
+			LOWER(TRIM(COALESCE(lifecycle_state,''))),
+			COALESCE(frozen_reason,''),
+			COALESCE(last_submit_error,''),
+			COALESCE(submit_retry_count,0),
+			COALESCE(last_submit_attempt_at_unix,0),
+			created_at_unix,updated_at_unix
+		FROM fee_pool_sessions`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`DROP TABLE fee_pool_sessions`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`ALTER TABLE fee_pool_sessions_new RENAME TO fee_pool_sessions`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`CREATE INDEX IF NOT EXISTS idx_fee_pool_client_id ON fee_pool_sessions(client_id)`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`CREATE INDEX IF NOT EXISTS idx_fee_pool_lifecycle ON fee_pool_sessions(lifecycle_state)`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`CREATE INDEX IF NOT EXISTS idx_fee_pool_updated_at ON fee_pool_sessions(updated_at_unix DESC)`); err != nil {
+		return err
+	}
+	err = tx.Commit()
+	return err
 }

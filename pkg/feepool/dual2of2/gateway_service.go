@@ -47,6 +47,7 @@ type GatewayService struct {
 const (
 	feePoolLockTimeThreshold = uint32(500000000)
 	defaultPayGuardBlocks    = uint32(1)
+	baseTxSafetyExtraBlocks  = uint32(1)
 )
 
 func (s *GatewayService) Info(clientID string) (InfoResp, error) {
@@ -100,6 +101,24 @@ func (s *GatewayService) Create(req CreateReq) (CreateResp, error) {
 	spendTx, err := tx.NewTransactionFromHex(spendTxHex)
 	if err != nil {
 		return CreateResp{}, fmt.Errorf("parse spend tx: %w", err)
+	}
+	expireHeight, hasHeight, err := sessionExpireHeight(spendTxHex)
+	if err != nil {
+		return CreateResp{}, fmt.Errorf("parse spend tx expire height failed: %w", err)
+	}
+	if !hasHeight {
+		return CreateResp{}, fmt.Errorf("spend tx locktime height required")
+	}
+	if s.Chain == nil {
+		return CreateResp{}, fmt.Errorf("chain not initialized")
+	}
+	tip, err := s.Chain.GetTipHeight()
+	if err != nil {
+		return CreateResp{}, fmt.Errorf("query tip height failed: %w", err)
+	}
+	expect := tip + s.Params.LockBlocks
+	if !isHeightWithinTolerance(expect, expireHeight, 1) {
+		return CreateResp{}, fmt.Errorf("invalid expire height: tip=%d expect=%d expire=%d", tip, expect, expireHeight)
 	}
 	clientSig := append([]byte(nil), req.ClientSig...)
 	if len(clientSig) == 0 {
@@ -156,7 +175,7 @@ func (s *GatewayService) Create(req CreateReq) (CreateResp, error) {
 		FinalTxID:                 "",
 		BaseTxHex:                 "",
 		CurrentTxHex:              mergedTx.Hex(),
-		Status:                    "pending_base_tx",
+		LifecycleState:            lifecyclePendingBaseTx,
 	}
 	if err := InsertSession(s.DB, row); err != nil {
 		return CreateResp{}, err
@@ -191,17 +210,23 @@ func (s *GatewayService) BaseTx(req BaseTxReq) (BaseTxResp, error) {
 	if !found {
 		return BaseTxResp{Success: false, Status: "not_found", Error: "session not found by spend_txid"}, nil
 	}
-	if row.Status != "pending_base_tx" && row.Status != "active" {
-		return BaseTxResp{Success: false, Status: row.Status, Error: "session status does not allow base_tx"}, nil
+	if row.LifecycleState != lifecyclePendingBaseTx && row.LifecycleState != lifecycleActive {
+		return BaseTxResp{Success: false, Status: row.LifecycleState, Error: "session lifecycle does not allow base_tx"}, nil
 	}
-	if row.BaseTxID != "" && row.Status == "active" {
+	if row.BaseTxID != "" && row.LifecycleState == lifecycleActive {
 		if err := s.ensureInitialOpenChargeEvent(row); err != nil {
 			return BaseTxResp{}, err
 		}
 		return BaseTxResp{Success: true, Status: "active", BaseTxID: row.BaseTxID}, nil
 	}
-	if err := s.rejectIfExpiredForPay(row); err != nil {
-		return BaseTxResp{Success: false, Status: row.Status, Error: err.Error()}, nil
+	tipNow, phase, _, expireHeight, err := s.queryPhase(row)
+	if err != nil {
+		return BaseTxResp{Success: false, Status: row.LifecycleState, Error: err.Error()}, nil
+	}
+	remain := int64(expireHeight) - int64(tipNow)
+	guard := int64(guardBlocksOrDefault(s.Params.PayRejectBeforeExpiryBlocks) + baseTxSafetyExtraBlocks)
+	if phase != phasePayable || remain <= guard {
+		return BaseTxResp{Success: false, Status: row.LifecycleState, Error: fmt.Sprintf("base tx activation blocked by height window: tip=%d expire=%d remain=%d", tipNow, expireHeight, remain)}, nil
 	}
 
 	clientPub, err := ec.PublicKeyFromString(row.ClientBSVCompressedPubHex)
@@ -214,7 +239,7 @@ func (s *GatewayService) BaseTx(req BaseTxReq) (BaseTxResp, error) {
 	}
 
 	if len(req.BaseTx) == 0 {
-		return BaseTxResp{Success: false, Status: row.Status, Error: "base tx required"}, nil
+		return BaseTxResp{Success: false, Status: row.LifecycleState, Error: "base tx required"}, nil
 	}
 	baseTxHex := strings.ToLower(hex.EncodeToString(req.BaseTx))
 	baseTx, err := tx.NewTransactionFromHex(baseTxHex)
@@ -226,19 +251,48 @@ func (s *GatewayService) BaseTx(req BaseTxReq) (BaseTxResp, error) {
 		return BaseTxResp{}, fmt.Errorf("build multisig script: %w", err)
 	}
 	if len(baseTx.Outputs) == 0 {
-		return BaseTxResp{Success: false, Status: row.Status, Error: "base tx has no outputs"}, nil
+		return BaseTxResp{Success: false, Status: row.LifecycleState, Error: "base tx has no outputs"}, nil
 	}
 	if baseTx.Outputs[0].LockingScript.String() != multisigScript.String() {
-		return BaseTxResp{Success: false, Status: row.Status, Error: "base tx output[0] locking script mismatch"}, nil
+		return BaseTxResp{Success: false, Status: row.LifecycleState, Error: "base tx output[0] locking script mismatch"}, nil
+	}
+	if baseTx.Outputs[0].Satoshis != row.InputAmountSat {
+		return BaseTxResp{Success: false, Status: row.LifecycleState, Error: fmt.Sprintf("base tx output[0] amount mismatch: got=%d expect=%d", baseTx.Outputs[0].Satoshis, row.InputAmountSat)}, nil
+	}
+	if bindErr := validateBaseTxMatchesSessionSpend(baseTx, row.CurrentTxHex); bindErr != nil {
+		return BaseTxResp{Success: false, Status: row.LifecycleState, Error: bindErr.Error()}, nil
 	}
 	baseTxID, err := s.Chain.Broadcast(baseTxHex)
 	if err != nil {
-		return BaseTxResp{Success: false, Status: row.Status, Error: "broadcast base tx failed: " + err.Error()}, nil
+		return BaseTxResp{Success: false, Status: row.LifecycleState, Error: "broadcast base tx failed: " + err.Error()}, nil
 	}
 	row.BaseTxID = baseTxID
 	row.BaseTxHex = baseTxHex
-	row.Status = "active"
-	if err := UpdateSession(s.DB, row); err != nil {
+	row.LifecycleState = lifecycleActive
+	row.FrozenReason = ""
+	nowUnix := time.Now().Unix()
+	sqlTx, err := s.DB.Begin()
+	if err != nil {
+		return BaseTxResp{}, err
+	}
+	if err := FreezeOtherActiveSessionsByClientTx(sqlTx, row.ClientID, row.SpendTxID, "superseded_by_new_pool", nowUnix); err != nil {
+		_ = sqlTx.Rollback()
+		return BaseTxResp{}, err
+	}
+	if _, err := sqlTx.Exec(
+		`UPDATE fee_pool_sessions
+		 SET sequence_num=?,server_amount_satoshi=?,client_amount_satoshi=?,base_txid=?,final_txid=?,base_tx_hex=?,current_tx_hex=?,lifecycle_state=?,frozen_reason=?,last_submit_error=?,submit_retry_count=?,last_submit_attempt_at_unix=?,updated_at_unix=?
+		 WHERE spend_txid=?`,
+		row.Sequence, row.ServerAmountSat, row.ClientAmountSat,
+		strings.TrimSpace(row.BaseTxID), strings.TrimSpace(row.FinalTxID),
+		row.BaseTxHex, row.CurrentTxHex,
+		row.LifecycleState, row.FrozenReason, row.LastSubmitError, row.SubmitRetryCount, row.LastSubmitAttemptAtUnix, nowUnix,
+		strings.TrimSpace(row.SpendTxID),
+	); err != nil {
+		_ = sqlTx.Rollback()
+		return BaseTxResp{}, err
+	}
+	if err := sqlTx.Commit(); err != nil {
 		return BaseTxResp{}, err
 	}
 	if err := s.ensureInitialOpenChargeEvent(row); err != nil {
@@ -267,20 +321,50 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 	if !found {
 		return PayConfirmResp{Success: false, Status: "not_found", Error: "session not found by spend_txid"}, nil
 	}
-	if row.Status != "active" {
-		return PayConfirmResp{Success: false, Status: row.Status, Error: "session status does not allow pay"}, nil
+	if err := ensureActivePoolGate(row); err != nil {
+		return payReject(row.LifecycleState, "not_active_pool", "session lifecycle does not allow pay"), nil
 	}
-	if err := s.rejectIfExpiredForPay(row); err != nil {
-		return PayConfirmResp{Success: false, Status: row.Status, Error: err.Error()}, nil
+	if !s.isUniqueActiveSession(row.ClientID, row.SpendTxID) {
+		return payReject(row.LifecycleState, "not_active_pool", "client has another active pool"), nil
+	}
+	_, phase, payability, _, err := s.queryPhase(row)
+	if err != nil {
+		return payReject(row.LifecycleState, "chain_state_unavailable", err.Error()), nil
+	}
+	if payability != payabilityPayable {
+		if phase == phaseNearExpiry {
+			return payReject(row.LifecycleState, "pool_near_expiry", "fee pool near expiry"), nil
+		}
+		return payReject(row.LifecycleState, "pool_should_submit", "fee pool should submit"), nil
 	}
 	if req.SequenceNumber <= row.Sequence {
-		return PayConfirmResp{Success: false, Status: row.Status, Error: fmt.Sprintf("sequence must increase: got=%d current=%d", req.SequenceNumber, row.Sequence)}, nil
+		return payReject(row.LifecycleState, "invalid_sequence", fmt.Sprintf("sequence must increase: got=%d current=%d", req.SequenceNumber, row.Sequence)), nil
 	}
 	if req.ServerAmount <= row.ServerAmountSat {
-		return PayConfirmResp{Success: false, Status: row.Status, Error: fmt.Sprintf("server_amount must increase: got=%d current=%d", req.ServerAmount, row.ServerAmountSat)}, nil
+		return payReject(row.LifecycleState, "invalid_server_amount", fmt.Sprintf("server_amount must increase: got=%d current=%d", req.ServerAmount, row.ServerAmountSat)), nil
 	}
+	delta := req.ServerAmount - row.ServerAmountSat
 	if req.Fee != row.SpendTxFeeSat {
-		return PayConfirmResp{Success: false, Status: row.Status, Error: fmt.Sprintf("fee mismatch: got=%d expect=%d", req.Fee, row.SpendTxFeeSat)}, nil
+		return payReject(row.LifecycleState, "fee_amount_mismatch", fmt.Sprintf("fee mismatch: got=%d expect=%d", req.Fee, row.SpendTxFeeSat)), nil
+	}
+	chargeReason := strings.TrimSpace(req.ChargeReason)
+	if chargeReason == "" {
+		chargeReason = "unspecified"
+	}
+	if req.ChargeAmountSatoshi != delta {
+		return payReject(row.LifecycleState, "fee_amount_mismatch", fmt.Sprintf("charge amount must equal server_amount delta: charge=%d delta=%d", req.ChargeAmountSatoshi, delta)), nil
+	}
+	if chargeReason == "listen_cycle_fee" {
+		if s.Params.SingleCycleFeeSatoshi == 0 {
+			return PayConfirmResp{}, fmt.Errorf("single_cycle_fee_satoshi must be configured for listen_cycle_fee")
+		}
+		if delta != s.Params.SingleCycleFeeSatoshi {
+			return payReject(row.LifecycleState, "fee_amount_mismatch", fmt.Sprintf("listen cycle fee amount mismatch: got=%d expect=%d", delta, s.Params.SingleCycleFeeSatoshi)), nil
+		}
+	}
+	expireBefore, hasBefore, err := sessionExpireHeight(row.CurrentTxHex)
+	if err != nil {
+		return payReject(row.LifecycleState, "invalid_tx_locktime", "parse current tx expire height failed"), nil
 	}
 	clientPub, err := ec.PublicKeyFromString(row.ClientBSVCompressedPubHex)
 	if err != nil {
@@ -300,26 +384,36 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 		row.PoolAmountSat,
 	)
 	if err != nil {
-		return PayConfirmResp{Success: false, Status: row.Status, Error: "rebuild updated tx failed: " + err.Error()}, nil
+		return payReject(row.LifecycleState, "invalid_tx_update", "rebuild updated tx failed: "+err.Error()), nil
+	}
+	expireAfter, hasAfter, err := sessionExpireHeight(updatedTx.Hex())
+	if err != nil {
+		return payReject(row.LifecycleState, "invalid_tx_locktime", "parse updated tx expire height failed"), nil
+	}
+	if hasBefore != hasAfter || (hasBefore && expireBefore != expireAfter) {
+		return payReject(row.LifecycleState, "invalid_tx_locktime", fmt.Sprintf("expire height changed: before=%d after=%d", expireBefore, expireAfter)), nil
+	}
+	if !isSameSpendInput(row.CurrentTxHex, updatedTx.Hex()) {
+		return payReject(row.LifecycleState, "invalid_tx_input", "updated tx input outpoint mismatch"), nil
 	}
 	clientSig := append([]byte(nil), req.ClientSig...)
 	if len(clientSig) == 0 {
-		return PayConfirmResp{Success: false, Status: row.Status, Error: "signature required"}, nil
+		return payReject(row.LifecycleState, "signature_required", "signature required"), nil
 	}
 	ok, err := ce.ServerVerifyClientUpdateSig(updatedTx, serverActor.PubKey, clientPub, &clientSig)
 	if err != nil {
-		return PayConfirmResp{Success: false, Status: row.Status, Error: "verify client update sig failed: " + err.Error()}, nil
+		return payReject(row.LifecycleState, "signature_invalid", "verify client update sig failed: "+err.Error()), nil
 	}
 	if !ok {
-		return PayConfirmResp{Success: false, Status: row.Status, Error: "client update signature invalid"}, nil
+		return payReject(row.LifecycleState, "signature_invalid", "client update signature invalid"), nil
 	}
 	serverSig, err := ce.SpendTXServerSign(updatedTx, row.PoolAmountSat, serverActor.PrivKey, clientPub)
 	if err != nil {
-		return PayConfirmResp{Success: false, Status: row.Status, Error: "server sign failed: " + err.Error()}, nil
+		return payReject(row.LifecycleState, "server_sign_failed", "server sign failed: "+err.Error()), nil
 	}
 	mergedTx, err := ce.MergeDualPoolSigForSpendTx(updatedTx.Hex(), serverSig, &clientSig)
 	if err != nil {
-		return PayConfirmResp{Success: false, Status: row.Status, Error: "merge signatures failed: " + err.Error()}, nil
+		return payReject(row.LifecycleState, "merge_signatures_failed", "merge signatures failed: "+err.Error()), nil
 	}
 	row.CurrentTxHex = mergedTx.Hex()
 	row.Sequence = req.SequenceNumber
@@ -327,10 +421,6 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 	row.ClientAmountSat = row.PoolAmountSat - row.ServerAmountSat - row.SpendTxFeeSat
 	if err := UpdateSession(s.DB, row); err != nil {
 		return PayConfirmResp{}, err
-	}
-	chargeReason := strings.TrimSpace(req.ChargeReason)
-	if chargeReason == "" {
-		chargeReason = "unspecified"
 	}
 	nowUnix := time.Now().Unix()
 	billingCycleSeconds := s.Params.BillingCycleSeconds
@@ -365,7 +455,7 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 	})
 	return PayConfirmResp{
 		Success:      true,
-		Status:       "active",
+		Status:       row.LifecycleState,
 		UpdatedTxID:  updatedTxID,
 		Sequence:     row.Sequence,
 		ServerAmount: row.ServerAmountSat,
@@ -424,17 +514,17 @@ func (s *GatewayService) Close(req CloseReq) (CloseResp, error) {
 	if !found {
 		return CloseResp{Success: false, Status: "not_found", Error: "session not found by spend_txid"}, nil
 	}
-	if row.Status == "closed" && row.FinalTxID != "" {
+	if row.LifecycleState == lifecycleClosed && row.FinalTxID != "" {
 		return CloseResp{Success: true, Status: "closed", Broadcasted: true, FinalSpendTxID: row.FinalTxID}, nil
 	}
-	if row.Status != "active" && row.Status != "pending_base_tx" {
-		return CloseResp{Success: false, Status: row.Status, Error: "session status does not allow close"}, nil
+	if row.LifecycleState != lifecycleActive && row.LifecycleState != lifecyclePendingBaseTx && row.LifecycleState != lifecycleShouldSubmit && row.LifecycleState != lifecycleFrozen {
+		return CloseResp{Success: false, Status: row.LifecycleState, Error: "session lifecycle does not allow close"}, nil
 	}
 	if req.ServerAmount != row.ServerAmountSat {
-		return CloseResp{Success: false, Status: row.Status, Error: fmt.Sprintf("server_amount mismatch: got=%d expect=%d", req.ServerAmount, row.ServerAmountSat)}, nil
+		return CloseResp{Success: false, Status: row.LifecycleState, Error: fmt.Sprintf("server_amount mismatch: got=%d expect=%d", req.ServerAmount, row.ServerAmountSat)}, nil
 	}
 	if req.Fee != row.SpendTxFeeSat {
-		return CloseResp{Success: false, Status: row.Status, Error: fmt.Sprintf("fee mismatch: got=%d expect=%d", req.Fee, row.SpendTxFeeSat)}, nil
+		return CloseResp{Success: false, Status: row.LifecycleState, Error: fmt.Sprintf("fee mismatch: got=%d expect=%d", req.Fee, row.SpendTxFeeSat)}, nil
 	}
 	clientPub, err := ec.PublicKeyFromString(row.ClientBSVCompressedPubHex)
 	if err != nil {
@@ -456,33 +546,34 @@ func (s *GatewayService) Close(req CloseReq) (CloseResp, error) {
 		row.PoolAmountSat,
 	)
 	if err != nil {
-		return CloseResp{Success: false, Status: row.Status, Error: "rebuild final tx failed: " + err.Error()}, nil
+		return CloseResp{Success: false, Status: row.LifecycleState, Error: "rebuild final tx failed: " + err.Error()}, nil
 	}
 	clientSig := append([]byte(nil), req.ClientSig...)
 	if len(clientSig) == 0 {
-		return CloseResp{Success: false, Status: row.Status, Error: "signature required"}, nil
+		return CloseResp{Success: false, Status: row.LifecycleState, Error: "signature required"}, nil
 	}
 	ok, err := ce.ServerVerifyClientSpendSig(finalTx, row.PoolAmountSat, serverActor.PubKey, clientPub, &clientSig)
 	if err != nil {
-		return CloseResp{Success: false, Status: row.Status, Error: "verify client final sig failed: " + err.Error()}, nil
+		return CloseResp{Success: false, Status: row.LifecycleState, Error: "verify client final sig failed: " + err.Error()}, nil
 	}
 	if !ok {
-		return CloseResp{Success: false, Status: row.Status, Error: "client final signature invalid"}, nil
+		return CloseResp{Success: false, Status: row.LifecycleState, Error: "client final signature invalid"}, nil
 	}
 	serverSig, err := ce.SpendTXServerSign(finalTx, row.PoolAmountSat, serverActor.PrivKey, clientPub)
 	if err != nil {
-		return CloseResp{Success: false, Status: row.Status, Error: "server sign final failed: " + err.Error()}, nil
+		return CloseResp{Success: false, Status: row.LifecycleState, Error: "server sign final failed: " + err.Error()}, nil
 	}
 	mergedTx, err := ce.MergeDualPoolSigForSpendTx(finalTx.Hex(), serverSig, &clientSig)
 	if err != nil {
-		return CloseResp{Success: false, Status: row.Status, Error: "merge final signatures failed: " + err.Error()}, nil
+		return CloseResp{Success: false, Status: row.LifecycleState, Error: "merge final signatures failed: " + err.Error()}, nil
 	}
 	finalTxID, err := s.Chain.Broadcast(mergedTx.Hex())
 	if err != nil {
-		return CloseResp{Success: false, Status: row.Status, Error: "broadcast final tx failed: " + err.Error()}, nil
+		return CloseResp{Success: false, Status: row.LifecycleState, Error: "broadcast final tx failed: " + err.Error()}, nil
 	}
 	row.FinalTxID = finalTxID
-	row.Status = "closed"
+	row.LifecycleState = lifecycleClosed
+	row.FrozenReason = ""
 	if err := UpdateSession(s.DB, row); err != nil {
 		return CloseResp{}, err
 	}
@@ -511,7 +602,18 @@ func (s *GatewayService) State(req StateReq) (StateResp, error) {
 	if strings.TrimSpace(req.SpendTxID) != "" {
 		row, found, err = LoadSessionBySpendTxID(s.DB, req.SpendTxID)
 	} else {
-		row, found, err = LoadLatestSessionByClientID(s.DB, clientID)
+		row, found, err = LoadPreferredSessionByClientID(s.DB, clientID)
+		if err == nil && found && row.LifecycleState == lifecycleActive {
+			if _, phase, payability, _, pErr := s.queryPhase(row); pErr == nil && phase == phasePayable && payability == payabilityPayable {
+				// 命中默认优先池：当前唯一可付费会话。
+			} else {
+				latest, ok, lErr := LoadLatestNonClosedSessionByClientID(s.DB, clientID)
+				if lErr == nil && ok {
+					row = latest
+					found = true
+				}
+			}
+		}
 	}
 	if err != nil {
 		return StateResp{}, err
@@ -519,9 +621,14 @@ func (s *GatewayService) State(req StateReq) (StateResp, error) {
 	if !found {
 		return StateResp{Status: "not_found"}, nil
 	}
+	tip, phase, payability, expireHeight, phaseErr := s.queryPhase(row)
+	if phaseErr != nil {
+		phase = ""
+		payability = payabilityBlocked
+	}
 	currentTx, _ := hex.DecodeString(strings.TrimSpace(row.CurrentTxHex))
 	return StateResp{
-		Status:          row.Status,
+		Status:          row.LifecycleState,
 		SpendTxID:       row.SpendTxID,
 		BaseTxID:        row.BaseTxID,
 		FinalTxID:       row.FinalTxID,
@@ -531,6 +638,11 @@ func (s *GatewayService) State(req StateReq) (StateResp, error) {
 		Sequence:        row.Sequence,
 		ServerAmountSat: row.ServerAmountSat,
 		ClientAmountSat: row.ClientAmountSat,
+		LifecycleState:  row.LifecycleState,
+		Payability:      payability,
+		Phase:           phase,
+		ExpireHeight:    expireHeight,
+		TipHeight:       tip,
 	}, nil
 }
 
@@ -563,7 +675,7 @@ func (s *GatewayService) PassiveCloseExpiredOnce() error {
 	if err != nil {
 		return fmt.Errorf("query tip height failed: %w", err)
 	}
-	rows, err := ListActiveSessions(s.DB)
+	rows, err := ListSessionsByLifecycleStates(s.DB, lifecycleActive, lifecycleFrozen, lifecycleShouldSubmit)
 	if err != nil {
 		return err
 	}
@@ -576,11 +688,50 @@ func (s *GatewayService) PassiveCloseExpiredOnce() error {
 			})
 			continue
 		}
-		if !hasHeight || tip < expireHeight {
+		if !hasHeight {
 			continue
 		}
+		phase, _ := computePhaseAndPayability(tip, expireHeight, s.Params.PayRejectBeforeExpiryBlocks)
+		switch phase {
+		case phasePayable:
+			if row.LifecycleState != lifecycleActive {
+				row.LifecycleState = lifecycleActive
+				row.FrozenReason = ""
+				if uErr := UpdateSession(s.DB, row); uErr != nil {
+					return uErr
+				}
+			}
+			continue
+		case phaseNearExpiry:
+			if row.LifecycleState != lifecycleFrozen {
+				row.LifecycleState = lifecycleFrozen
+				row.FrozenReason = "near_expiry"
+				if uErr := UpdateSession(s.DB, row); uErr != nil {
+					return uErr
+				}
+			}
+			continue
+		}
+		// phaseShouldSubmit：统一进入自动提交队列。
+		if row.LifecycleState != lifecycleShouldSubmit {
+			row.LifecycleState = lifecycleShouldSubmit
+			row.FrozenReason = "should_submit"
+			if uErr := UpdateSession(s.DB, row); uErr != nil {
+				return uErr
+			}
+		}
+		row.LastSubmitAttemptAtUnix = time.Now().Unix()
+		row.SubmitRetryCount++
 		finalTxID, bErr := s.Chain.Broadcast(row.CurrentTxHex)
 		if bErr != nil {
+			row.LastSubmitError = strings.TrimSpace(bErr.Error())
+			if isExternalSettledBroadcastError(bErr) {
+				row.LifecycleState = lifecycleSettledExtern
+				row.FrozenReason = "broadcast_conflict"
+			}
+			if uErr := UpdateSession(s.DB, row); uErr != nil {
+				return uErr
+			}
 			obs.Error("bitcast-gateway", "fee_pool_passive_close_broadcast_failed", map[string]any{
 				"spend_txid":      row.SpendTxID,
 				"tip_height":      tip,
@@ -590,7 +741,9 @@ func (s *GatewayService) PassiveCloseExpiredOnce() error {
 			continue
 		}
 		row.FinalTxID = finalTxID
-		row.Status = "closed"
+		row.LastSubmitError = ""
+		row.LifecycleState = lifecycleClosed
+		row.FrozenReason = ""
 		if uErr := UpdateSession(s.DB, row); uErr != nil {
 			obs.Error("bitcast-gateway", "fee_pool_passive_close_update_failed", map[string]any{
 				"spend_txid": row.SpendTxID,
@@ -616,37 +769,6 @@ func (s *GatewayService) PassiveCloseExpiredOnce() error {
 	return nil
 }
 
-func (s *GatewayService) rejectIfExpiredForPay(row GatewaySessionRow) error {
-	if s.Chain == nil {
-		return nil
-	}
-	expireHeight, hasHeight, err := sessionExpireHeight(row.CurrentTxHex)
-	if err != nil {
-		return fmt.Errorf("parse session spend tx failed: %w", err)
-	}
-	if !hasHeight {
-		return nil
-	}
-	tip, err := s.Chain.GetTipHeight()
-	if err != nil {
-		return fmt.Errorf("query tip height failed: %w", err)
-	}
-	if tip >= expireHeight {
-		return fmt.Errorf("fee pool expired at height=%d current_tip=%d", expireHeight, tip)
-	}
-	guardBlocks := s.Params.PayRejectBeforeExpiryBlocks
-	if guardBlocks == 0 {
-		guardBlocks = defaultPayGuardBlocks
-	}
-	if expireHeight > tip {
-		remain := expireHeight - tip
-		if remain <= guardBlocks {
-			return fmt.Errorf("fee pool near expiry: expire_height=%d current_tip=%d guard_blocks=%d", expireHeight, tip, guardBlocks)
-		}
-	}
-	return nil
-}
-
 func sessionExpireHeight(txHex string) (uint32, bool, error) {
 	spendTxHex := strings.TrimSpace(txHex)
 	if spendTxHex == "" {
@@ -664,4 +786,122 @@ func sessionExpireHeight(txHex string) (uint32, bool, error) {
 		return 0, false, nil
 	}
 	return lockTime, true, nil
+}
+
+func validateBaseTxMatchesSessionSpend(baseTx *tx.Transaction, currentTxHex string) error {
+	if baseTx == nil {
+		return fmt.Errorf("base tx required")
+	}
+	spendTxHex := strings.TrimSpace(currentTxHex)
+	if spendTxHex == "" {
+		return fmt.Errorf("session current tx required")
+	}
+	spendTx, err := tx.NewTransactionFromHex(spendTxHex)
+	if err != nil {
+		return fmt.Errorf("parse session spend tx failed: %w", err)
+	}
+	if len(spendTx.Inputs) == 0 {
+		return fmt.Errorf("session spend tx has no inputs")
+	}
+	in := spendTx.Inputs[0]
+	if in.SourceTXID == nil {
+		return fmt.Errorf("session spend tx input[0] source txid missing")
+	}
+	baseTxID := baseTx.TxID().String()
+	if !strings.EqualFold(strings.TrimSpace(in.SourceTXID.String()), strings.TrimSpace(baseTxID)) {
+		return fmt.Errorf("base tx does not match spend tx input: spend_input_txid=%s base_txid=%s", in.SourceTXID.String(), baseTxID)
+	}
+	if in.SourceTxOutIndex != 0 {
+		return fmt.Errorf("spend tx input[0] source vout must be 0: got=%d", in.SourceTxOutIndex)
+	}
+	return nil
+}
+
+func (s *GatewayService) queryPhase(row GatewaySessionRow) (uint32, string, string, uint32, error) {
+	if s == nil || s.Chain == nil {
+		return 0, "", "", 0, fmt.Errorf("chain state unavailable")
+	}
+	expireHeight, hasHeight, err := sessionExpireHeight(row.CurrentTxHex)
+	if err != nil {
+		return 0, "", "", 0, fmt.Errorf("parse session spend tx failed: %w", err)
+	}
+	if !hasHeight {
+		return 0, "", "", 0, fmt.Errorf("invalid session expire height")
+	}
+	tip, err := s.Chain.GetTipHeight()
+	if err != nil {
+		return 0, "", "", 0, fmt.Errorf("query tip height failed: %w", err)
+	}
+	phase, payability := computePhaseAndPayability(tip, expireHeight, s.Params.PayRejectBeforeExpiryBlocks)
+	return tip, phase, payability, expireHeight, nil
+}
+
+func (s *GatewayService) isUniqueActiveSession(clientID string, spendTxID string) bool {
+	if s == nil || s.DB == nil {
+		return false
+	}
+	clientID = NormalizeClientIDLoose(clientID)
+	if clientID == "" {
+		return false
+	}
+	var n int
+	if err := s.DB.QueryRow(
+		`SELECT COUNT(*) FROM fee_pool_sessions WHERE client_id=? AND lifecycle_state='active' AND spend_txid<>?`,
+		clientID,
+		strings.TrimSpace(spendTxID),
+	).Scan(&n); err != nil {
+		return false
+	}
+	return n == 0
+}
+
+func payReject(status string, code string, message string) PayConfirmResp {
+	return PayConfirmResp{
+		Success:   false,
+		Status:    normalizeLifecycleState(status),
+		ErrorCode: strings.TrimSpace(code),
+		Error:     strings.TrimSpace(message),
+	}
+}
+
+func isSameSpendInput(txHexA string, txHexB string) bool {
+	a, err := tx.NewTransactionFromHex(strings.TrimSpace(txHexA))
+	if err != nil || len(a.Inputs) == 0 || a.Inputs[0].SourceTXID == nil {
+		return false
+	}
+	b, err := tx.NewTransactionFromHex(strings.TrimSpace(txHexB))
+	if err != nil || len(b.Inputs) == 0 || b.Inputs[0].SourceTXID == nil {
+		return false
+	}
+	if !strings.EqualFold(a.Inputs[0].SourceTXID.String(), b.Inputs[0].SourceTXID.String()) {
+		return false
+	}
+	return a.Inputs[0].SourceTxOutIndex == b.Inputs[0].SourceTxOutIndex
+}
+
+func isHeightWithinTolerance(expect uint32, got uint32, tolerance uint32) bool {
+	if expect >= got {
+		return expect-got <= tolerance
+	}
+	return got-expect <= tolerance
+}
+
+func isExternalSettledBroadcastError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	if strings.Contains(msg, "missing inputs") {
+		return true
+	}
+	if strings.Contains(msg, "already spent") {
+		return true
+	}
+	if strings.Contains(msg, "txn-mempool-conflict") {
+		return true
+	}
+	if strings.Contains(msg, "conflict") {
+		return true
+	}
+	return false
 }

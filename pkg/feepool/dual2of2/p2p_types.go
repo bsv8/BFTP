@@ -77,7 +77,8 @@ type PayConfirmResp struct {
 	ServerAmount uint64 `protobuf:"varint,5,opt,name=server_amount,json=serverAmount,proto3" json:"server_amount,omitempty"`
 	ClientAmount uint64 `protobuf:"varint,6,opt,name=client_amount,json=clientAmount,proto3" json:"client_amount,omitempty"`
 
-	Error string `protobuf:"bytes,7,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	ErrorCode string `protobuf:"bytes,7,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	Error     string `protobuf:"bytes,8,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
 }
 
 type CloseReq struct {
@@ -115,6 +116,13 @@ type StateResp struct {
 	Sequence        uint32 `protobuf:"varint,8,opt,name=sequence,proto3" json:"sequence"`
 	ServerAmountSat uint64 `protobuf:"varint,9,opt,name=server_amount_satoshi,json=serverAmountSatoshi,proto3" json:"server_amount_satoshi"`
 	ClientAmountSat uint64 `protobuf:"varint,10,opt,name=client_amount_satoshi,json=clientAmountSatoshi,proto3" json:"client_amount_satoshi"`
+
+	LifecycleState string `protobuf:"bytes,11,opt,name=lifecycle_state,json=lifecycleState,proto3" json:"lifecycle_state,omitempty"`
+	Payability     string `protobuf:"bytes,12,opt,name=payability,proto3" json:"payability,omitempty"`
+	Phase          string `protobuf:"bytes,13,opt,name=phase,proto3" json:"phase,omitempty"`
+	ExpireHeight   uint32 `protobuf:"varint,14,opt,name=expire_height,json=expireHeight,proto3" json:"expire_height,omitempty"`
+	TipHeight      uint32 `protobuf:"varint,15,opt,name=tip_height,json=tipHeight,proto3" json:"tip_height,omitempty"`
+	OutpointSpent  bool   `protobuf:"varint,16,opt,name=outpoint_spent,json=outpointSpent,proto3" json:"outpoint_spent"`
 }
 
 // DemandPublishPaidReq/Resp 是“发布广播 + 扣费”的组合接口。

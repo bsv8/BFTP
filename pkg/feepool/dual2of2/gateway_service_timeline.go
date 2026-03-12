@@ -396,7 +396,7 @@ func upsertPresenceTx(tx *sql.Tx, clientID string, peerID string, online bool, n
 
 func countActiveSessionsByClientTx(tx *sql.Tx, clientID string) (int, error) {
 	var n int
-	err := tx.QueryRow(`SELECT COUNT(*) FROM fee_pool_sessions WHERE client_id=? AND status='active'`, clientID).Scan(&n)
+	err := tx.QueryRow(`SELECT COUNT(*) FROM fee_pool_sessions WHERE client_id=? AND lifecycle_state='active'`, clientID).Scan(&n)
 	return n, err
 }
 

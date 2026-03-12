@@ -37,22 +37,22 @@ func TestServiceTimeline_OnlinePauseInterrupted(t *testing.T) {
 func TestServiceTimeline_OverlapPoolsKeepServingSpan(t *testing.T) {
 	db := openTimelineTestDB(t)
 	insertActiveSession(t, db, "client_b", "tx_1")
-	insertActiveSession(t, db, "client_b", "tx_2")
+	insertFrozenSession(t, db, "client_b", "tx_2")
 
 	svc := &GatewayService{DB: db}
 	if err := svc.MarkClientOnline("client_b", "12D3KooWBBBB", "unit_online"); err != nil {
 		t.Fatalf("mark online failed: %v", err)
 	}
-	assertServiceState(t, db, "client_b", serviceStateServing, true, true, 2)
+	assertServiceState(t, db, "client_b", serviceStateServing, true, true, 1)
 	assertCount(t, db, `SELECT COUNT(*) FROM fee_pool_service_spans WHERE client_id='client_b' AND status='open'`, 1)
 
 	closeSessionStatus(t, db, "tx_1")
 	if err := svc.SyncServiceStateByClient("client_b", "unit_close_first", "tx_1", ""); err != nil {
 		t.Fatalf("sync first close failed: %v", err)
 	}
-	assertServiceState(t, db, "client_b", serviceStateServing, true, true, 1)
-	assertCount(t, db, `SELECT COUNT(*) FROM fee_pool_service_spans WHERE client_id='client_b' AND status='open'`, 1)
-	assertCount(t, db, `SELECT COUNT(*) FROM fee_pool_service_interruptions WHERE client_id='client_b'`, 0)
+	assertServiceState(t, db, "client_b", serviceStateInterrupted, true, false, 0)
+	assertCount(t, db, `SELECT COUNT(*) FROM fee_pool_service_spans WHERE client_id='client_b' AND status='open'`, 0)
+	assertCount(t, db, `SELECT COUNT(*) FROM fee_pool_service_interruptions WHERE client_id='client_b' AND status='open'`, 1)
 }
 
 func openTimelineTestDB(t *testing.T) *sql.DB {
@@ -85,7 +85,7 @@ func insertActiveSession(t *testing.T, db *sql.DB, clientID string, spendTxID st
 		FinalTxID:                 "",
 		BaseTxHex:                 "00",
 		CurrentTxHex:              "00",
-		Status:                    "active",
+		LifecycleState:            "active",
 	})
 	if err != nil {
 		t.Fatalf("insert active session failed: %v", err)
@@ -94,9 +94,33 @@ func insertActiveSession(t *testing.T, db *sql.DB, clientID string, spendTxID st
 
 func closeSessionStatus(t *testing.T, db *sql.DB, spendTxID string) {
 	t.Helper()
-	_, err := db.Exec(`UPDATE fee_pool_sessions SET status='closed' WHERE spend_txid=?`, spendTxID)
+	_, err := db.Exec(`UPDATE fee_pool_sessions SET lifecycle_state='closed' WHERE spend_txid=?`, spendTxID)
 	if err != nil {
 		t.Fatalf("close session status failed: %v", err)
+	}
+}
+
+func insertFrozenSession(t *testing.T, db *sql.DB, clientID string, spendTxID string) {
+	t.Helper()
+	err := InsertSession(db, GatewaySessionRow{
+		SpendTxID:                 spendTxID,
+		ClientID:                  clientID,
+		ClientBSVCompressedPubHex: "02aa",
+		ServerBSVCompressedPubHex: "03bb",
+		InputAmountSat:            1000,
+		PoolAmountSat:             1000,
+		SpendTxFeeSat:             1,
+		Sequence:                  1,
+		ServerAmountSat:           1,
+		ClientAmountSat:           998,
+		BaseTxID:                  "base_" + spendTxID,
+		FinalTxID:                 "",
+		BaseTxHex:                 "00",
+		CurrentTxHex:              "00",
+		LifecycleState:            "frozen",
+	})
+	if err != nil {
+		t.Fatalf("insert frozen session failed: %v", err)
 	}
 }
 
