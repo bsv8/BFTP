@@ -195,6 +195,9 @@ func (s *GatewayService) BaseTx(req BaseTxReq) (BaseTxResp, error) {
 		return BaseTxResp{Success: false, Status: row.Status, Error: "session status does not allow base_tx"}, nil
 	}
 	if row.BaseTxID != "" && row.Status == "active" {
+		if err := s.ensureInitialOpenChargeEvent(row); err != nil {
+			return BaseTxResp{}, err
+		}
 		return BaseTxResp{Success: true, Status: "active", BaseTxID: row.BaseTxID}, nil
 	}
 	if err := s.rejectIfExpiredForPay(row); err != nil {
@@ -236,6 +239,9 @@ func (s *GatewayService) BaseTx(req BaseTxReq) (BaseTxResp, error) {
 	row.BaseTxHex = baseTxHex
 	row.Status = "active"
 	if err := UpdateSession(s.DB, row); err != nil {
+		return BaseTxResp{}, err
+	}
+	if err := s.ensureInitialOpenChargeEvent(row); err != nil {
 		return BaseTxResp{}, err
 	}
 	if err := syncServiceStateTx(s.DB, row.ClientID, nil, "session_activated", row.SpendTxID, ""); err != nil {
@@ -365,6 +371,44 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 		ServerAmount: row.ServerAmountSat,
 		ClientAmount: row.ClientAmountSat,
 	}, nil
+}
+
+func (s *GatewayService) ensureInitialOpenChargeEvent(row GatewaySessionRow) error {
+	if s == nil || s.DB == nil {
+		return fmt.Errorf("db not initialized")
+	}
+	if strings.TrimSpace(row.SpendTxID) == "" || strings.TrimSpace(row.ClientID) == "" {
+		return nil
+	}
+	if row.Sequence != 1 || row.ServerAmountSat == 0 {
+		return nil
+	}
+	var exists int
+	if err := s.DB.QueryRow(
+		`SELECT COUNT(1) FROM fee_pool_charge_events WHERE client_id=? AND spend_txid=? AND sequence_num=? AND charge_reason=?`,
+		row.ClientID, row.SpendTxID, 1, "listen_cycle_fee",
+	).Scan(&exists); err != nil {
+		return err
+	}
+	if exists > 0 {
+		return nil
+	}
+	billingCycleSeconds := s.Params.BillingCycleSeconds
+	if billingCycleSeconds == 0 {
+		return fmt.Errorf("billing_cycle_seconds must be configured for listen_cycle_fee")
+	}
+	effectiveUntilUnix := time.Now().Unix() + int64(billingCycleSeconds)
+	return InsertChargeEvent(
+		s.DB,
+		row.ClientID,
+		row.SpendTxID,
+		1,
+		"listen_cycle_fee",
+		row.ServerAmountSat,
+		billingCycleSeconds,
+		effectiveUntilUnix,
+		row.ClientAmountSat,
+	)
 }
 
 func (s *GatewayService) Close(req CloseReq) (CloseResp, error) {
