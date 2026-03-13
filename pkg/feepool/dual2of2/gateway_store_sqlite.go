@@ -44,7 +44,6 @@ type GatewaySessionRow struct {
 
 type ListenerTargetRow struct {
 	ClientID string
-	PeerID   string
 }
 
 func InitGatewayStore(db *sql.DB) error {
@@ -55,7 +54,7 @@ func InitGatewayStore(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS fee_pool_sessions (
 			spend_txid TEXT PRIMARY KEY,
 
-			client_id TEXT NOT NULL,
+			client_pubkey_hex TEXT NOT NULL,
 			client_bsv_pubkey_hex TEXT NOT NULL,
 			server_bsv_pubkey_hex TEXT NOT NULL,
 
@@ -85,11 +84,11 @@ func InitGatewayStore(db *sql.DB) error {
 			created_at_unix INTEGER NOT NULL,
 			updated_at_unix INTEGER NOT NULL
 		)`,
-		`CREATE INDEX IF NOT EXISTS idx_fee_pool_client_id ON fee_pool_sessions(client_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_fee_pool_client_pubkey_hex ON fee_pool_sessions(client_pubkey_hex)`,
 		`CREATE INDEX IF NOT EXISTS idx_fee_pool_updated_at ON fee_pool_sessions(updated_at_unix DESC)`,
 		`CREATE TABLE IF NOT EXISTS fee_pool_charge_events (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			client_id TEXT NOT NULL,
+			client_pubkey_hex TEXT NOT NULL,
 			spend_txid TEXT NOT NULL,
 			sequence_num INTEGER NOT NULL,
 			charge_reason TEXT NOT NULL,
@@ -99,10 +98,9 @@ func InitGatewayStore(db *sql.DB) error {
 			pool_balance_after_satoshi INTEGER NOT NULL DEFAULT 0,
 			created_at_unix INTEGER NOT NULL
 		)`,
-		`CREATE INDEX IF NOT EXISTS idx_fee_pool_charge_client_reason ON fee_pool_charge_events(client_id, charge_reason)`,
+		`CREATE INDEX IF NOT EXISTS idx_fee_pool_charge_client_reason ON fee_pool_charge_events(client_pubkey_hex, charge_reason)`,
 		`CREATE TABLE IF NOT EXISTS fee_pool_client_presence (
-			client_id TEXT PRIMARY KEY,
-			peer_id TEXT NOT NULL,
+			client_pubkey_hex TEXT PRIMARY KEY,
 			online INTEGER NOT NULL,
 			last_online_at_unix INTEGER NOT NULL,
 			last_offline_at_unix INTEGER NOT NULL,
@@ -110,7 +108,7 @@ func InitGatewayStore(db *sql.DB) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_fee_pool_client_presence_online ON fee_pool_client_presence(online, updated_at_unix DESC)`,
 		`CREATE TABLE IF NOT EXISTS fee_pool_service_state (
-			client_id TEXT PRIMARY KEY,
+			client_pubkey_hex TEXT PRIMARY KEY,
 			state TEXT NOT NULL,
 			online INTEGER NOT NULL,
 			coverage_active INTEGER NOT NULL,
@@ -124,7 +122,7 @@ func InitGatewayStore(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_fee_pool_service_state_state ON fee_pool_service_state(state, updated_at_unix DESC)`,
 		`CREATE TABLE IF NOT EXISTS fee_pool_service_spans (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			client_id TEXT NOT NULL,
+			client_pubkey_hex TEXT NOT NULL,
 			start_at_unix INTEGER NOT NULL,
 			end_at_unix INTEGER NOT NULL,
 			status TEXT NOT NULL,
@@ -134,10 +132,10 @@ func InitGatewayStore(db *sql.DB) error {
 			created_at_unix INTEGER NOT NULL,
 			updated_at_unix INTEGER NOT NULL
 		)`,
-		`CREATE INDEX IF NOT EXISTS idx_fee_pool_service_spans_client ON fee_pool_service_spans(client_id, id DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_fee_pool_service_spans_client ON fee_pool_service_spans(client_pubkey_hex, id DESC)`,
 		`CREATE TABLE IF NOT EXISTS fee_pool_service_pauses (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			client_id TEXT NOT NULL,
+			client_pubkey_hex TEXT NOT NULL,
 			span_id INTEGER NOT NULL,
 			start_at_unix INTEGER NOT NULL,
 			end_at_unix INTEGER NOT NULL,
@@ -146,10 +144,10 @@ func InitGatewayStore(db *sql.DB) error {
 			created_at_unix INTEGER NOT NULL,
 			updated_at_unix INTEGER NOT NULL
 		)`,
-		`CREATE INDEX IF NOT EXISTS idx_fee_pool_service_pauses_client ON fee_pool_service_pauses(client_id, id DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_fee_pool_service_pauses_client ON fee_pool_service_pauses(client_pubkey_hex, id DESC)`,
 		`CREATE TABLE IF NOT EXISTS fee_pool_service_interruptions (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			client_id TEXT NOT NULL,
+			client_pubkey_hex TEXT NOT NULL,
 			start_at_unix INTEGER NOT NULL,
 			end_at_unix INTEGER NOT NULL,
 			status TEXT NOT NULL,
@@ -157,19 +155,18 @@ func InitGatewayStore(db *sql.DB) error {
 			created_at_unix INTEGER NOT NULL,
 			updated_at_unix INTEGER NOT NULL
 		)`,
-		`CREATE INDEX IF NOT EXISTS idx_fee_pool_service_interruptions_client ON fee_pool_service_interruptions(client_id, id DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_fee_pool_service_interruptions_client ON fee_pool_service_interruptions(client_pubkey_hex, id DESC)`,
 		`CREATE TABLE IF NOT EXISTS fee_pool_service_events (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			client_id TEXT NOT NULL,
+			client_pubkey_hex TEXT NOT NULL,
 			event_name TEXT NOT NULL,
 			prev_state TEXT NOT NULL,
 			next_state TEXT NOT NULL,
 			reason TEXT NOT NULL,
 			spend_txid TEXT NOT NULL,
-			peer_id TEXT NOT NULL,
 			created_at_unix INTEGER NOT NULL
 		)`,
-		`CREATE INDEX IF NOT EXISTS idx_fee_pool_service_events_client ON fee_pool_service_events(client_id, id DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_fee_pool_service_events_client ON fee_pool_service_events(client_pubkey_hex, id DESC)`,
 		`CREATE TABLE IF NOT EXISTS gateway_admin_config (
 			config_key TEXT PRIMARY KEY,
 			config_value TEXT NOT NULL,
@@ -304,7 +301,7 @@ func ensureSingleActiveIndex(db *sql.DB) error {
 		  AND spend_txid IN (
 			SELECT spend_txid FROM (
 				SELECT spend_txid,
-					   ROW_NUMBER() OVER(PARTITION BY client_id ORDER BY updated_at_unix DESC, created_at_unix DESC, spend_txid DESC) AS rn
+					   ROW_NUMBER() OVER(PARTITION BY client_pubkey_hex ORDER BY updated_at_unix DESC, created_at_unix DESC, spend_txid DESC) AS rn
 				FROM fee_pool_sessions
 				WHERE lifecycle_state='active'
 			) t
@@ -312,7 +309,7 @@ func ensureSingleActiveIndex(db *sql.DB) error {
 		  )`); err != nil {
 		return err
 	}
-	_, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uq_fee_pool_client_active ON fee_pool_sessions(client_id) WHERE lifecycle_state='active'`)
+	_, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uq_fee_pool_client_active ON fee_pool_sessions(client_pubkey_hex) WHERE lifecycle_state='active'`)
 	return err
 }
 
@@ -354,14 +351,13 @@ func GetGatewayAdminConfig(db *sql.DB, key string) (string, bool, error) {
 	return value, true, nil
 }
 
-func UpsertClientPresence(db *sql.DB, clientID string, peerID string, online bool) error {
+func UpsertClientPresence(db *sql.DB, clientID string, _ string, online bool) error {
 	if db == nil {
 		return fmt.Errorf("db is nil")
 	}
 	clientID = NormalizeClientIDLoose(clientID)
-	peerID = strings.TrimSpace(peerID)
 	if clientID == "" {
-		return fmt.Errorf("client_id required")
+		return fmt.Errorf("client_pubkey_hex required")
 	}
 	now := time.Now().Unix()
 	onlineInt := 0
@@ -374,15 +370,14 @@ func UpsertClientPresence(db *sql.DB, clientID string, peerID string, online boo
 		lastOffline = now
 	}
 	_, err := db.Exec(
-		`INSERT INTO fee_pool_client_presence(client_id,peer_id,online,last_online_at_unix,last_offline_at_unix,updated_at_unix)
+		`INSERT INTO fee_pool_client_presence(client_pubkey_hex,online,last_online_at_unix,last_offline_at_unix,updated_at_unix)
 		 VALUES(?,?,?,?,?,?)
-		 ON CONFLICT(client_id) DO UPDATE SET
-			peer_id=excluded.peer_id,
+		 ON CONFLICT(client_pubkey_hex) DO UPDATE SET
 			online=excluded.online,
 			last_online_at_unix=CASE WHEN excluded.last_online_at_unix>0 THEN excluded.last_online_at_unix ELSE fee_pool_client_presence.last_online_at_unix END,
 			last_offline_at_unix=CASE WHEN excluded.last_offline_at_unix>0 THEN excluded.last_offline_at_unix ELSE fee_pool_client_presence.last_offline_at_unix END,
 			updated_at_unix=excluded.updated_at_unix`,
-		clientID, peerID, onlineInt, lastOnline, lastOffline, now,
+		clientID, onlineInt, lastOnline, lastOffline, now,
 	)
 	return err
 }
@@ -396,10 +391,10 @@ func ListServingListenerTargetsByChargeReason(db *sql.DB, reason string) ([]List
 		return nil, fmt.Errorf("reason is required")
 	}
 	rows, err := db.Query(
-		`SELECT DISTINCT s.client_id, p.peer_id
+		`SELECT DISTINCT s.client_pubkey_hex
 		 FROM fee_pool_service_state s
-		 JOIN fee_pool_client_presence p ON p.client_id=s.client_id
-		 JOIN fee_pool_charge_events c ON c.client_id=s.client_id
+		 JOIN fee_pool_client_presence p ON p.client_pubkey_hex=s.client_pubkey_hex
+		 JOIN fee_pool_charge_events c ON c.client_pubkey_hex=s.client_pubkey_hex
 		 WHERE c.charge_reason=? AND s.state='serving' AND p.online=1`,
 		reason,
 	)
@@ -410,12 +405,11 @@ func ListServingListenerTargetsByChargeReason(db *sql.DB, reason string) ([]List
 	out := make([]ListenerTargetRow, 0, 16)
 	for rows.Next() {
 		var row ListenerTargetRow
-		if err := rows.Scan(&row.ClientID, &row.PeerID); err != nil {
+		if err := rows.Scan(&row.ClientID); err != nil {
 			return nil, err
 		}
 		row.ClientID = strings.ToLower(strings.TrimSpace(row.ClientID))
-		row.PeerID = strings.TrimSpace(row.PeerID)
-		if row.ClientID == "" || row.PeerID == "" {
+		if row.ClientID == "" {
 			continue
 		}
 		out = append(out, row)
@@ -440,7 +434,7 @@ func InsertChargeEvent(db *sql.DB, clientID string, spendTxID string, sequence u
 		return fmt.Errorf("effective_until_unix must be positive")
 	}
 	_, err := db.Exec(
-		`INSERT INTO fee_pool_charge_events(client_id,spend_txid,sequence_num,charge_reason,charge_amount_satoshi,billing_cycle_seconds,effective_until_unix,pool_balance_after_satoshi,created_at_unix) VALUES(?,?,?,?,?,?,?,?,?)`,
+		`INSERT INTO fee_pool_charge_events(client_pubkey_hex,spend_txid,sequence_num,charge_reason,charge_amount_satoshi,billing_cycle_seconds,effective_until_unix,pool_balance_after_satoshi,created_at_unix) VALUES(?,?,?,?,?,?,?,?,?)`,
 		clientID, spendTxID, sequence, reason, amount, billingCycleSeconds, effectiveUntilUnix, poolBalanceAfterSatoshi, time.Now().Unix(),
 	)
 	return err
@@ -453,16 +447,16 @@ func CountChargeEventsByClientAndReason(db *sql.DB, clientID string, reason stri
 	clientID = NormalizeClientIDLoose(clientID)
 	reason = strings.TrimSpace(reason)
 	if clientID == "" || reason == "" {
-		return 0, fmt.Errorf("client_id and reason are required")
+		return 0, fmt.Errorf("client_pubkey_hex and reason are required")
 	}
 	aliases := ClientIDAliasesForQuery(clientID)
 	if len(aliases) == 0 {
-		return 0, fmt.Errorf("client_id and reason are required")
+		return 0, fmt.Errorf("client_pubkey_hex and reason are required")
 	}
 	var n int
 	if len(aliases) == 1 {
 		if err := db.QueryRow(
-			`SELECT COUNT(*) FROM fee_pool_charge_events WHERE client_id=? AND charge_reason=?`,
+			`SELECT COUNT(*) FROM fee_pool_charge_events WHERE client_pubkey_hex=? AND charge_reason=?`,
 			aliases[0], reason,
 		).Scan(&n); err != nil {
 			return 0, err
@@ -470,7 +464,7 @@ func CountChargeEventsByClientAndReason(db *sql.DB, clientID string, reason stri
 		return n, nil
 	}
 	if err := db.QueryRow(
-		`SELECT COUNT(*) FROM fee_pool_charge_events WHERE client_id IN (?,?) AND charge_reason=?`,
+		`SELECT COUNT(*) FROM fee_pool_charge_events WHERE client_pubkey_hex IN (?,?) AND charge_reason=?`,
 		aliases[0], aliases[1], reason,
 	).Scan(&n); err != nil {
 		return 0, err
@@ -486,7 +480,7 @@ func ListClientsByChargeReason(db *sql.DB, reason string) ([]string, error) {
 	if reason == "" {
 		return nil, fmt.Errorf("reason is required")
 	}
-	rows, err := db.Query(`SELECT DISTINCT client_id FROM fee_pool_charge_events WHERE charge_reason=?`, reason)
+	rows, err := db.Query(`SELECT DISTINCT client_pubkey_hex FROM fee_pool_charge_events WHERE charge_reason=?`, reason)
 	if err != nil {
 		return nil, err
 	}
@@ -506,7 +500,7 @@ func ListClientsByChargeReason(db *sql.DB, reason string) ([]string, error) {
 	return out, nil
 }
 
-const sessionSelectColumns = `spend_txid,client_id,client_bsv_pubkey_hex,server_bsv_pubkey_hex,input_amount_satoshi,pool_amount_satoshi,spend_tx_fee_satoshi,sequence_num,server_amount_satoshi,client_amount_satoshi,base_txid,final_txid,base_tx_hex,current_tx_hex,lifecycle_state,frozen_reason,last_submit_error,submit_retry_count,last_submit_attempt_at_unix,close_submit_at_unix,close_observed_at_unix,close_observe_status,close_observe_reason,created_at_unix,updated_at_unix`
+const sessionSelectColumns = `spend_txid,client_pubkey_hex,client_bsv_pubkey_hex,server_bsv_pubkey_hex,input_amount_satoshi,pool_amount_satoshi,spend_tx_fee_satoshi,sequence_num,server_amount_satoshi,client_amount_satoshi,base_txid,final_txid,base_tx_hex,current_tx_hex,lifecycle_state,frozen_reason,last_submit_error,submit_retry_count,last_submit_attempt_at_unix,close_submit_at_unix,close_observed_at_unix,close_observe_status,close_observe_reason,created_at_unix,updated_at_unix`
 
 func sessionScanArgs(row *GatewaySessionRow) []any {
 	return []any{
@@ -525,21 +519,21 @@ func sessionScanArgs(row *GatewaySessionRow) []any {
 func LoadLatestSessionByClientID(db *sql.DB, clientID string) (GatewaySessionRow, bool, error) {
 	clientID = NormalizeClientIDLoose(clientID)
 	if clientID == "" {
-		return GatewaySessionRow{}, false, fmt.Errorf("client_id required")
+		return GatewaySessionRow{}, false, fmt.Errorf("client_pubkey_hex required")
 	}
 	aliases := ClientIDAliasesForQuery(clientID)
 	if len(aliases) == 0 {
-		return GatewaySessionRow{}, false, fmt.Errorf("client_id required")
+		return GatewaySessionRow{}, false, fmt.Errorf("client_pubkey_hex required")
 	}
 	var row GatewaySessionRow
 	query := `SELECT ` + sessionSelectColumns + `
 			 FROM fee_pool_sessions
-			 WHERE client_id=?
+			 WHERE client_pubkey_hex=?
 			 ORDER BY updated_at_unix DESC
 			 LIMIT 1`
 	args := []any{aliases[0]}
 	if len(aliases) > 1 {
-		query = strings.ReplaceAll(query, "client_id=?", "client_id IN (?,?)")
+		query = strings.ReplaceAll(query, "client_pubkey_hex=?", "client_pubkey_hex IN (?,?)")
 		args = []any{aliases[0], aliases[1]}
 	}
 	err := db.QueryRow(query, args...).Scan(sessionScanArgs(&row)...)
@@ -556,22 +550,22 @@ func LoadLatestSessionByClientID(db *sql.DB, clientID string) (GatewaySessionRow
 func LoadPreferredSessionByClientID(db *sql.DB, clientID string) (GatewaySessionRow, bool, error) {
 	clientID = NormalizeClientIDLoose(clientID)
 	if clientID == "" {
-		return GatewaySessionRow{}, false, fmt.Errorf("client_id required")
+		return GatewaySessionRow{}, false, fmt.Errorf("client_pubkey_hex required")
 	}
 	aliases := ClientIDAliasesForQuery(clientID)
 	if len(aliases) == 0 {
-		return GatewaySessionRow{}, false, fmt.Errorf("client_id required")
+		return GatewaySessionRow{}, false, fmt.Errorf("client_pubkey_hex required")
 	}
 	var row GatewaySessionRow
 	// 先找 active，保证 rotate 后默认视图仍指向当前服务中的池。
 	queryActive := `SELECT ` + sessionSelectColumns + `
 			 FROM fee_pool_sessions
-			 WHERE client_id=? AND lifecycle_state='active'
+			 WHERE client_pubkey_hex=? AND lifecycle_state='active'
 			 ORDER BY updated_at_unix DESC
 			 LIMIT 1`
 	args := []any{aliases[0]}
 	if len(aliases) > 1 {
-		queryActive = strings.ReplaceAll(queryActive, "client_id=?", "client_id IN (?,?)")
+		queryActive = strings.ReplaceAll(queryActive, "client_pubkey_hex=?", "client_pubkey_hex IN (?,?)")
 		args = []any{aliases[0], aliases[1]}
 	}
 	err := db.QueryRow(queryActive, args...).Scan(sessionScanArgs(&row)...)
@@ -587,21 +581,21 @@ func LoadPreferredSessionByClientID(db *sql.DB, clientID string) (GatewaySession
 func LoadLatestNonClosedSessionByClientID(db *sql.DB, clientID string) (GatewaySessionRow, bool, error) {
 	clientID = NormalizeClientIDLoose(clientID)
 	if clientID == "" {
-		return GatewaySessionRow{}, false, fmt.Errorf("client_id required")
+		return GatewaySessionRow{}, false, fmt.Errorf("client_pubkey_hex required")
 	}
 	aliases := ClientIDAliasesForQuery(clientID)
 	if len(aliases) == 0 {
-		return GatewaySessionRow{}, false, fmt.Errorf("client_id required")
+		return GatewaySessionRow{}, false, fmt.Errorf("client_pubkey_hex required")
 	}
 	var row GatewaySessionRow
 	query := `SELECT ` + sessionSelectColumns + `
 		FROM fee_pool_sessions
-		WHERE client_id=? AND lifecycle_state NOT IN ('closed','settled_external')
+		WHERE client_pubkey_hex=? AND lifecycle_state NOT IN ('closed','settled_external')
 		ORDER BY updated_at_unix DESC
 		LIMIT 1`
 	args := []any{aliases[0]}
 	if len(aliases) > 1 {
-		query = strings.ReplaceAll(query, "client_id=?", "client_id IN (?,?)")
+		query = strings.ReplaceAll(query, "client_pubkey_hex=?", "client_pubkey_hex IN (?,?)")
 		args = []any{aliases[0], aliases[1]}
 	}
 	err := db.QueryRow(query, args...).Scan(sessionScanArgs(&row)...)
@@ -639,14 +633,14 @@ func InsertSession(db *sql.DB, row GatewaySessionRow) error {
 	row.UpdatedAt = now
 	row.ClientID = NormalizeClientIDLoose(row.ClientID)
 	if row.ClientID == "" {
-		return fmt.Errorf("client_id required")
+		return fmt.Errorf("client_pubkey_hex required")
 	}
 	row.LifecycleState = strings.ToLower(strings.TrimSpace(row.LifecycleState))
 	if row.LifecycleState == "" {
 		row.LifecycleState = "pending_base_tx"
 	}
 	_, err := db.Exec(
-		`INSERT INTO fee_pool_sessions(spend_txid,client_id,client_bsv_pubkey_hex,server_bsv_pubkey_hex,input_amount_satoshi,pool_amount_satoshi,spend_tx_fee_satoshi,sequence_num,server_amount_satoshi,client_amount_satoshi,base_txid,final_txid,base_tx_hex,current_tx_hex,lifecycle_state,frozen_reason,last_submit_error,submit_retry_count,last_submit_attempt_at_unix,close_submit_at_unix,close_observed_at_unix,close_observe_status,close_observe_reason,created_at_unix,updated_at_unix)
+		`INSERT INTO fee_pool_sessions(spend_txid,client_pubkey_hex,client_bsv_pubkey_hex,server_bsv_pubkey_hex,input_amount_satoshi,pool_amount_satoshi,spend_tx_fee_satoshi,sequence_num,server_amount_satoshi,client_amount_satoshi,base_txid,final_txid,base_tx_hex,current_tx_hex,lifecycle_state,frozen_reason,last_submit_error,submit_retry_count,last_submit_attempt_at_unix,close_submit_at_unix,close_observed_at_unix,close_observe_status,close_observe_reason,created_at_unix,updated_at_unix)
 		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		row.SpendTxID,
 		row.ClientID,
@@ -750,12 +744,12 @@ func FreezeOtherActiveSessionsByClientTx(tx *sql.Tx, clientID string, keepSpendT
 	}
 	clientID = NormalizeClientIDLoose(clientID)
 	if clientID == "" {
-		return fmt.Errorf("client_id required")
+		return fmt.Errorf("client_pubkey_hex required")
 	}
 	_, err := tx.Exec(
 		`UPDATE fee_pool_sessions
 		 SET lifecycle_state='frozen',frozen_reason=?,updated_at_unix=?
-		 WHERE client_id=? AND lifecycle_state='active' AND spend_txid<>?`,
+		 WHERE client_pubkey_hex=? AND lifecycle_state='active' AND spend_txid<>?`,
 		strings.TrimSpace(reason), nowUnix, clientID, strings.TrimSpace(keepSpendTxID),
 	)
 	return err
@@ -806,7 +800,7 @@ func rebuildFeePoolSessionsWithoutStatus(db *sql.DB) error {
 	if _, err = tx.Exec(`
 		CREATE TABLE IF NOT EXISTS fee_pool_sessions_new (
 			spend_txid TEXT PRIMARY KEY,
-			client_id TEXT NOT NULL,
+			client_pubkey_hex TEXT NOT NULL,
 			client_bsv_pubkey_hex TEXT NOT NULL,
 			server_bsv_pubkey_hex TEXT NOT NULL,
 			input_amount_satoshi INTEGER NOT NULL,
@@ -835,13 +829,13 @@ func rebuildFeePoolSessionsWithoutStatus(db *sql.DB) error {
 	}
 	if _, err = tx.Exec(`
 		INSERT INTO fee_pool_sessions_new(
-			spend_txid,client_id,client_bsv_pubkey_hex,server_bsv_pubkey_hex,
+			spend_txid,client_pubkey_hex,client_bsv_pubkey_hex,server_bsv_pubkey_hex,
 			input_amount_satoshi,pool_amount_satoshi,spend_tx_fee_satoshi,sequence_num,server_amount_satoshi,client_amount_satoshi,
 			base_txid,final_txid,base_tx_hex,current_tx_hex,lifecycle_state,frozen_reason,last_submit_error,submit_retry_count,last_submit_attempt_at_unix,
 			close_submit_at_unix,close_observed_at_unix,close_observe_status,close_observe_reason,created_at_unix,updated_at_unix
 		)
 		SELECT
-			spend_txid,client_id,client_bsv_pubkey_hex,server_bsv_pubkey_hex,
+			spend_txid,client_pubkey_hex,client_bsv_pubkey_hex,server_bsv_pubkey_hex,
 			input_amount_satoshi,pool_amount_satoshi,spend_tx_fee_satoshi,sequence_num,server_amount_satoshi,client_amount_satoshi,
 			base_txid,final_txid,base_tx_hex,current_tx_hex,
 			LOWER(TRIM(COALESCE(lifecycle_state,''))),
@@ -863,7 +857,7 @@ func rebuildFeePoolSessionsWithoutStatus(db *sql.DB) error {
 	if _, err = tx.Exec(`ALTER TABLE fee_pool_sessions_new RENAME TO fee_pool_sessions`); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(`CREATE INDEX IF NOT EXISTS idx_fee_pool_client_id ON fee_pool_sessions(client_id)`); err != nil {
+	if _, err = tx.Exec(`CREATE INDEX IF NOT EXISTS idx_fee_pool_client_pubkey_hex ON fee_pool_sessions(client_pubkey_hex)`); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(`CREATE INDEX IF NOT EXISTS idx_fee_pool_lifecycle ON fee_pool_sessions(lifecycle_state)`); err != nil {

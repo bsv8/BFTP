@@ -48,13 +48,13 @@ func Libp2pMarshalPubHexToSecpCompressedHex(marshalPubHex string) (string, error
 	return strings.ToLower(hex.EncodeToString(raw)), nil
 }
 
-// NormalizeClientIDStrict 统一 client_id 到 secp256k1 压缩公钥 hex（小写）。
+// NormalizeClientIDStrict 统一 client_pubkey_hex 到 secp256k1 压缩公钥 hex（小写）。
 // 说明：输入支持历史 marshal 格式与标准 compressed 格式；非法输入返回错误。
 func NormalizeClientIDStrict(clientID string) (string, error) {
 	return Libp2pMarshalPubHexToSecpCompressedHex(clientID)
 }
 
-// NormalizeClientIDLoose 尝试规范化 client_id；无法解析时仅做 lower+trim。
+// NormalizeClientIDLoose 尝试规范化 client_pubkey_hex；无法解析时仅做 lower+trim。
 // 说明：该函数用于历史数据迁移与兼容查询，避免旧测试夹具（如 client_a）被硬失败。
 func NormalizeClientIDLoose(clientID string) string {
 	v := strings.ToLower(strings.TrimSpace(clientID))

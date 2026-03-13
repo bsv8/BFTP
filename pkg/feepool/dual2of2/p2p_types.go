@@ -1,10 +1,10 @@
 package dual2of2
 
 // InfoReq/InfoResp 用于 client 启动时获取网关的费用池握手参数。
-// 说明：client_id 规范为 secp256k1 压缩公钥 hex（33 字节，02/03 开头，小写）。
+// 说明：client_pubkey_hex 规范为 secp256k1 压缩公钥 hex（33 字节，02/03 开头，小写）。
 // 网关会兼容旧输入（libp2p MarshalPublicKey hex）并在落库前归一化到上述格式。
 type InfoReq struct {
-	ClientID string `protobuf:"bytes,1,opt,name=client_id,json=clientId,proto3" json:"client_id"`
+	ClientID string `protobuf:"bytes,1,opt,name=client_pubkey_hex,json=clientId,proto3" json:"client_pubkey_hex"`
 }
 
 type InfoResp struct {
@@ -21,7 +21,7 @@ type InfoResp struct {
 }
 
 type CreateReq struct {
-	ClientID string `protobuf:"bytes,1,opt,name=client_id,json=clientId,proto3" json:"client_id"`
+	ClientID string `protobuf:"bytes,1,opt,name=client_pubkey_hex,json=clientId,proto3" json:"client_pubkey_hex"`
 
 	SpendTx        []byte `protobuf:"bytes,2,opt,name=spend_tx,json=spendTx,proto3" json:"spend_tx"`
 	InputAmount    uint64 `protobuf:"varint,3,opt,name=input_amount,json=inputAmount,proto3" json:"input_amount"`
@@ -39,7 +39,7 @@ type CreateResp struct {
 }
 
 type BaseTxReq struct {
-	ClientID string `protobuf:"bytes,1,opt,name=client_id,json=clientId,proto3" json:"client_id"`
+	ClientID string `protobuf:"bytes,1,opt,name=client_pubkey_hex,json=clientId,proto3" json:"client_pubkey_hex"`
 
 	SpendTxID string `protobuf:"bytes,2,opt,name=spend_txid,json=spendTxid,proto3" json:"spend_txid"`
 	BaseTx    []byte `protobuf:"bytes,3,opt,name=base_tx,json=baseTx,proto3" json:"base_tx"`
@@ -54,7 +54,7 @@ type BaseTxResp struct {
 }
 
 type PayConfirmReq struct {
-	ClientID string `protobuf:"bytes,1,opt,name=client_id,json=clientId,proto3" json:"client_id"`
+	ClientID string `protobuf:"bytes,1,opt,name=client_pubkey_hex,json=clientId,proto3" json:"client_pubkey_hex"`
 
 	SpendTxID      string `protobuf:"bytes,2,opt,name=spend_txid,json=spendTxid,proto3" json:"spend_txid"`
 	SequenceNumber uint32 `protobuf:"varint,3,opt,name=sequence_number,json=sequenceNumber,proto3" json:"sequence_number"`
@@ -82,7 +82,7 @@ type PayConfirmResp struct {
 }
 
 type CloseReq struct {
-	ClientID string `protobuf:"bytes,1,opt,name=client_id,json=clientId,proto3" json:"client_id"`
+	ClientID string `protobuf:"bytes,1,opt,name=client_pubkey_hex,json=clientId,proto3" json:"client_pubkey_hex"`
 
 	SpendTxID    string `protobuf:"bytes,2,opt,name=spend_txid,json=spendTxid,proto3" json:"spend_txid"`
 	ServerAmount uint64 `protobuf:"varint,3,opt,name=server_amount,json=serverAmount,proto3" json:"server_amount"`
@@ -99,7 +99,7 @@ type CloseResp struct {
 }
 
 type StateReq struct {
-	ClientID  string `protobuf:"bytes,1,opt,name=client_id,json=clientId,proto3" json:"client_id"`
+	ClientID  string `protobuf:"bytes,1,opt,name=client_pubkey_hex,json=clientId,proto3" json:"client_pubkey_hex"`
 	SpendTxID string `protobuf:"bytes,2,opt,name=spend_txid,json=spendTxid,proto3" json:"spend_txid,omitempty"`
 }
 
@@ -128,7 +128,7 @@ type StateResp struct {
 // DemandPublishPaidReq/Resp 是“发布广播 + 扣费”的组合接口。
 // 注意：demand 仍落在 dealprod 的 demands 表里；扣费走费用池（spend tx update）。
 type DemandPublishPaidReq struct {
-	ClientID string `protobuf:"bytes,1,opt,name=client_id,json=clientId,proto3" json:"client_id"`
+	ClientID string `protobuf:"bytes,1,opt,name=client_pubkey_hex,json=clientId,proto3" json:"client_pubkey_hex"`
 
 	SeedHash   string   `protobuf:"bytes,2,opt,name=seed_hash,json=seedHash,proto3" json:"seed_hash"`
 	ChunkCount uint32   `protobuf:"varint,3,opt,name=chunk_count,json=chunkCount,proto3" json:"chunk_count"`
@@ -159,7 +159,7 @@ type DemandPublishPaidResp struct {
 // - 网关只负责付费发布和广播 live demand；
 // - 真正的直播 segment 交易仍走后续 c2c。
 type LiveDemandPublishPaidReq struct {
-	ClientID string `protobuf:"bytes,1,opt,name=client_id,json=clientId,proto3" json:"client_id"`
+	ClientID string `protobuf:"bytes,1,opt,name=client_pubkey_hex,json=clientId,proto3" json:"client_pubkey_hex"`
 
 	StreamID         string   `protobuf:"bytes,2,opt,name=stream_id,json=streamId,proto3" json:"stream_id"`
 	HaveSegmentIndex int64    `protobuf:"varint,3,opt,name=have_segment_index,json=haveSegmentIndex,proto3" json:"have_segment_index"`

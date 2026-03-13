@@ -51,9 +51,9 @@ func (s *GatewayService) ReconcileServiceStates(reason string) error {
 		return fmt.Errorf("db not initialized")
 	}
 	rows, err := s.DB.Query(
-		`SELECT client_id FROM fee_pool_sessions
+		`SELECT client_pubkey_hex FROM fee_pool_sessions
 		 UNION
-		 SELECT client_id FROM fee_pool_client_presence`,
+		 SELECT client_pubkey_hex FROM fee_pool_client_presence`,
 	)
 	if err != nil {
 		return err
@@ -97,7 +97,7 @@ func syncServiceStateTx(db *sql.DB, clientID string, onlineOverride *bool, reaso
 	spendTxID = strings.TrimSpace(spendTxID)
 	peerID = strings.TrimSpace(peerID)
 	if clientID == "" {
-		return fmt.Errorf("client_id required")
+		return fmt.Errorf("client_pubkey_hex required")
 	}
 	if reason == "" {
 		reason = "sync"
@@ -191,7 +191,7 @@ func syncServiceStateTx(db *sql.DB, clientID string, onlineOverride *bool, reaso
 func normalizeOpenInterruptionsTx(tx *sql.Tx, clientID string, coverageActive bool, now int64) (int64, error) {
 	rows, err := tx.Query(
 		`SELECT id FROM fee_pool_service_interruptions
-		 WHERE client_id=? AND status='open'
+		 WHERE client_pubkey_hex=? AND status='open'
 		 ORDER BY id DESC`,
 		clientID,
 	)
@@ -332,8 +332,8 @@ func loadServiceStateTx(tx *sql.Tx, clientID string) (serviceStateRow, error) {
 	var onlineInt int
 	var coverageInt int
 	err := tx.QueryRow(
-		`SELECT client_id,state,online,coverage_active,active_session_count,current_span_id,current_pause_id,current_interrupt_id,last_transition_at_unix,updated_at_unix
-		 FROM fee_pool_service_state WHERE client_id=?`,
+		`SELECT client_pubkey_hex,state,online,coverage_active,active_session_count,current_span_id,current_pause_id,current_interrupt_id,last_transition_at_unix,updated_at_unix
+		 FROM fee_pool_service_state WHERE client_pubkey_hex=?`,
 		clientID,
 	).Scan(
 		&row.ClientID,
@@ -360,7 +360,7 @@ func loadServiceStateTx(tx *sql.Tx, clientID string) (serviceStateRow, error) {
 
 func loadPresenceOnlineTx(tx *sql.Tx, clientID string) (bool, error) {
 	var onlineInt int
-	err := tx.QueryRow(`SELECT online FROM fee_pool_client_presence WHERE client_id=?`, clientID).Scan(&onlineInt)
+	err := tx.QueryRow(`SELECT online FROM fee_pool_client_presence WHERE client_pubkey_hex=?`, clientID).Scan(&onlineInt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return false, nil
@@ -371,6 +371,7 @@ func loadPresenceOnlineTx(tx *sql.Tx, clientID string) (bool, error) {
 }
 
 func upsertPresenceTx(tx *sql.Tx, clientID string, peerID string, online bool, now int64) error {
+	_ = strings.TrimSpace(peerID)
 	onlineInt := 0
 	lastOnline := int64(0)
 	lastOffline := int64(0)
@@ -381,22 +382,21 @@ func upsertPresenceTx(tx *sql.Tx, clientID string, peerID string, online bool, n
 		lastOffline = now
 	}
 	_, err := tx.Exec(
-		`INSERT INTO fee_pool_client_presence(client_id,peer_id,online,last_online_at_unix,last_offline_at_unix,updated_at_unix)
-		 VALUES(?,?,?,?,?,?)
-		 ON CONFLICT(client_id) DO UPDATE SET
-			peer_id=CASE WHEN excluded.peer_id<>'' THEN excluded.peer_id ELSE fee_pool_client_presence.peer_id END,
+		`INSERT INTO fee_pool_client_presence(client_pubkey_hex,online,last_online_at_unix,last_offline_at_unix,updated_at_unix)
+		 VALUES(?,?,?,?,?)
+		 ON CONFLICT(client_pubkey_hex) DO UPDATE SET
 			online=excluded.online,
 			last_online_at_unix=CASE WHEN excluded.last_online_at_unix>0 THEN excluded.last_online_at_unix ELSE fee_pool_client_presence.last_online_at_unix END,
 			last_offline_at_unix=CASE WHEN excluded.last_offline_at_unix>0 THEN excluded.last_offline_at_unix ELSE fee_pool_client_presence.last_offline_at_unix END,
 			updated_at_unix=excluded.updated_at_unix`,
-		clientID, peerID, onlineInt, lastOnline, lastOffline, now,
+		clientID, onlineInt, lastOnline, lastOffline, now,
 	)
 	return err
 }
 
 func countActiveSessionsByClientTx(tx *sql.Tx, clientID string) (int, error) {
 	var n int
-	err := tx.QueryRow(`SELECT COUNT(*) FROM fee_pool_sessions WHERE client_id=? AND lifecycle_state='active'`, clientID).Scan(&n)
+	err := tx.QueryRow(`SELECT COUNT(*) FROM fee_pool_sessions WHERE client_pubkey_hex=? AND lifecycle_state='active'`, clientID).Scan(&n)
 	return n, err
 }
 
@@ -410,9 +410,9 @@ func upsertServiceStateTx(tx *sql.Tx, row serviceStateRow) error {
 		coverageInt = 1
 	}
 	_, err := tx.Exec(
-		`INSERT INTO fee_pool_service_state(client_id,state,online,coverage_active,active_session_count,current_span_id,current_pause_id,current_interrupt_id,last_transition_at_unix,updated_at_unix)
+		`INSERT INTO fee_pool_service_state(client_pubkey_hex,state,online,coverage_active,active_session_count,current_span_id,current_pause_id,current_interrupt_id,last_transition_at_unix,updated_at_unix)
 		 VALUES(?,?,?,?,?,?,?,?,?,?)
-		 ON CONFLICT(client_id) DO UPDATE SET
+		 ON CONFLICT(client_pubkey_hex) DO UPDATE SET
 			state=excluded.state,
 			online=excluded.online,
 			coverage_active=excluded.coverage_active,
@@ -431,7 +431,7 @@ func upsertServiceStateTx(tx *sql.Tx, row serviceStateRow) error {
 
 func openSpanTx(tx *sql.Tx, clientID string, now int64, spendTxID string) (int64, error) {
 	res, err := tx.Exec(
-		`INSERT INTO fee_pool_service_spans(client_id,start_at_unix,end_at_unix,status,start_spend_txid,end_spend_txid,end_reason,created_at_unix,updated_at_unix)
+		`INSERT INTO fee_pool_service_spans(client_pubkey_hex,start_at_unix,end_at_unix,status,start_spend_txid,end_spend_txid,end_reason,created_at_unix,updated_at_unix)
 		 VALUES(?,?,?,?,?,?,?,?,?)`,
 		clientID, now, 0, "open", strings.TrimSpace(spendTxID), "", "", now, now,
 	)
@@ -453,7 +453,7 @@ func closeSpanTx(tx *sql.Tx, spanID int64, now int64, reason string, spendTxID s
 
 func openPauseTx(tx *sql.Tx, clientID string, spanID int64, now int64, reason string) (int64, error) {
 	res, err := tx.Exec(
-		`INSERT INTO fee_pool_service_pauses(client_id,span_id,start_at_unix,end_at_unix,status,reason,created_at_unix,updated_at_unix)
+		`INSERT INTO fee_pool_service_pauses(client_pubkey_hex,span_id,start_at_unix,end_at_unix,status,reason,created_at_unix,updated_at_unix)
 		 VALUES(?,?,?,?,?,?,?,?)`,
 		clientID, spanID, now, 0, "open", strings.TrimSpace(reason), now, now,
 	)
@@ -475,7 +475,7 @@ func closePauseTx(tx *sql.Tx, pauseID int64, now int64, reason string) error {
 
 func openInterruptionTx(tx *sql.Tx, clientID string, now int64, reason string) (int64, error) {
 	res, err := tx.Exec(
-		`INSERT INTO fee_pool_service_interruptions(client_id,start_at_unix,end_at_unix,status,reason,created_at_unix,updated_at_unix)
+		`INSERT INTO fee_pool_service_interruptions(client_pubkey_hex,start_at_unix,end_at_unix,status,reason,created_at_unix,updated_at_unix)
 		 VALUES(?,?,?,?,?,?,?)`,
 		clientID, now, 0, "open", strings.TrimSpace(reason), now, now,
 	)
@@ -496,16 +496,16 @@ func closeInterruptionTx(tx *sql.Tx, interruptionID int64, now int64, reason str
 }
 
 func insertServiceEventTx(tx *sql.Tx, clientID string, eventName string, prevState string, nextState string, reason string, spendTxID string, peerID string, now int64) error {
+	_ = strings.TrimSpace(peerID)
 	_, err := tx.Exec(
-		`INSERT INTO fee_pool_service_events(client_id,event_name,prev_state,next_state,reason,spend_txid,peer_id,created_at_unix)
-		 VALUES(?,?,?,?,?,?,?,?)`,
+		`INSERT INTO fee_pool_service_events(client_pubkey_hex,event_name,prev_state,next_state,reason,spend_txid,created_at_unix)
+		 VALUES(?,?,?,?,?,?,?)`,
 		clientID,
 		strings.TrimSpace(eventName),
 		strings.TrimSpace(prevState),
 		strings.TrimSpace(nextState),
 		strings.TrimSpace(reason),
 		strings.TrimSpace(spendTxID),
-		strings.TrimSpace(peerID),
 		now,
 	)
 	return err

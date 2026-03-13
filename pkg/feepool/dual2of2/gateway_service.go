@@ -52,7 +52,7 @@ const (
 
 func (s *GatewayService) Info(clientID string) (InfoResp, error) {
 	if _, err := NormalizeClientIDStrict(clientID); err != nil {
-		return InfoResp{}, fmt.Errorf("invalid client_id: %w", err)
+		return InfoResp{}, fmt.Errorf("invalid client_pubkey_hex: %w", err)
 	}
 	return InfoResp{
 		Status:                   "ok",
@@ -73,7 +73,7 @@ func (s *GatewayService) Create(req CreateReq) (CreateResp, error) {
 		return CreateResp{}, fmt.Errorf("db not initialized")
 	}
 	if strings.TrimSpace(req.ClientID) == "" {
-		return CreateResp{}, fmt.Errorf("client_id required")
+		return CreateResp{}, fmt.Errorf("client_pubkey_hex required")
 	}
 	if len(req.SpendTx) == 0 {
 		return CreateResp{}, fmt.Errorf("spend_tx required")
@@ -201,7 +201,7 @@ func (s *GatewayService) BaseTx(req BaseTxReq) (BaseTxResp, error) {
 		return BaseTxResp{}, fmt.Errorf("service not initialized")
 	}
 	if strings.TrimSpace(req.ClientID) == "" {
-		return BaseTxResp{}, fmt.Errorf("client_id required")
+		return BaseTxResp{}, fmt.Errorf("client_pubkey_hex required")
 	}
 	row, found, err := LoadSessionBySpendTxID(s.DB, req.SpendTxID)
 	if err != nil {
@@ -475,7 +475,7 @@ func (s *GatewayService) ensureInitialOpenChargeEvent(row GatewaySessionRow) err
 	}
 	var exists int
 	if err := s.DB.QueryRow(
-		`SELECT COUNT(1) FROM fee_pool_charge_events WHERE client_id=? AND spend_txid=? AND sequence_num=? AND charge_reason=?`,
+		`SELECT COUNT(1) FROM fee_pool_charge_events WHERE client_pubkey_hex=? AND spend_txid=? AND sequence_num=? AND charge_reason=?`,
 		row.ClientID, row.SpendTxID, 1, "listen_cycle_fee",
 	).Scan(&exists); err != nil {
 		return err
@@ -617,7 +617,7 @@ func (s *GatewayService) State(req StateReq) (StateResp, error) {
 	}
 	clientID, err := NormalizeClientIDStrict(req.ClientID)
 	if err != nil {
-		return StateResp{}, fmt.Errorf("invalid client_id: %w", err)
+		return StateResp{}, fmt.Errorf("invalid client_pubkey_hex: %w", err)
 	}
 	var row GatewaySessionRow
 	var found bool
@@ -966,7 +966,7 @@ func (s *GatewayService) isUniqueActiveSession(clientID string, spendTxID string
 	}
 	var n int
 	if err := s.DB.QueryRow(
-		`SELECT COUNT(*) FROM fee_pool_sessions WHERE client_id=? AND lifecycle_state='active' AND spend_txid<>?`,
+		`SELECT COUNT(*) FROM fee_pool_sessions WHERE client_pubkey_hex=? AND lifecycle_state='active' AND spend_txid<>?`,
 		clientID,
 		strings.TrimSpace(spendTxID),
 	).Scan(&n); err != nil {

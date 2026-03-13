@@ -16,22 +16,22 @@ func TestServiceTimeline_OnlinePauseInterrupted(t *testing.T) {
 		t.Fatalf("mark online failed: %v", err)
 	}
 	assertServiceState(t, db, "client_a", serviceStateServing, true, true, 1)
-	assertCount(t, db, `SELECT COUNT(*) FROM fee_pool_service_spans WHERE client_id='client_a' AND status='open'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM fee_pool_service_spans WHERE client_pubkey_hex='client_a' AND status='open'`, 1)
 
 	if err := svc.MarkClientOffline("client_a", "12D3KooWAAAA", "unit_offline"); err != nil {
 		t.Fatalf("mark offline failed: %v", err)
 	}
 	assertServiceState(t, db, "client_a", serviceStatePaused, false, true, 1)
-	assertCount(t, db, `SELECT COUNT(*) FROM fee_pool_service_pauses WHERE client_id='client_a' AND status='open'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM fee_pool_service_pauses WHERE client_pubkey_hex='client_a' AND status='open'`, 1)
 
 	closeSessionStatus(t, db, "tx_a")
 	if err := svc.SyncServiceStateByClient("client_a", "unit_close", "tx_a", ""); err != nil {
 		t.Fatalf("sync by client failed: %v", err)
 	}
 	assertServiceState(t, db, "client_a", serviceStateInterrupted, false, false, 0)
-	assertCount(t, db, `SELECT COUNT(*) FROM fee_pool_service_spans WHERE client_id='client_a' AND status='closed'`, 1)
-	assertCount(t, db, `SELECT COUNT(*) FROM fee_pool_service_pauses WHERE client_id='client_a' AND status='closed'`, 1)
-	assertCount(t, db, `SELECT COUNT(*) FROM fee_pool_service_interruptions WHERE client_id='client_a' AND status='open'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM fee_pool_service_spans WHERE client_pubkey_hex='client_a' AND status='closed'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM fee_pool_service_pauses WHERE client_pubkey_hex='client_a' AND status='closed'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM fee_pool_service_interruptions WHERE client_pubkey_hex='client_a' AND status='open'`, 1)
 }
 
 func TestServiceTimeline_OverlapPoolsKeepServingSpan(t *testing.T) {
@@ -44,15 +44,15 @@ func TestServiceTimeline_OverlapPoolsKeepServingSpan(t *testing.T) {
 		t.Fatalf("mark online failed: %v", err)
 	}
 	assertServiceState(t, db, "client_b", serviceStateServing, true, true, 1)
-	assertCount(t, db, `SELECT COUNT(*) FROM fee_pool_service_spans WHERE client_id='client_b' AND status='open'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM fee_pool_service_spans WHERE client_pubkey_hex='client_b' AND status='open'`, 1)
 
 	closeSessionStatus(t, db, "tx_1")
 	if err := svc.SyncServiceStateByClient("client_b", "unit_close_first", "tx_1", ""); err != nil {
 		t.Fatalf("sync first close failed: %v", err)
 	}
 	assertServiceState(t, db, "client_b", serviceStateInterrupted, true, false, 0)
-	assertCount(t, db, `SELECT COUNT(*) FROM fee_pool_service_spans WHERE client_id='client_b' AND status='open'`, 0)
-	assertCount(t, db, `SELECT COUNT(*) FROM fee_pool_service_interruptions WHERE client_id='client_b' AND status='open'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM fee_pool_service_spans WHERE client_pubkey_hex='client_b' AND status='open'`, 0)
+	assertCount(t, db, `SELECT COUNT(*) FROM fee_pool_service_interruptions WHERE client_pubkey_hex='client_b' AND status='open'`, 1)
 }
 
 func openTimelineTestDB(t *testing.T) *sql.DB {
@@ -131,7 +131,7 @@ func assertServiceState(t *testing.T, db *sql.DB, clientID string, wantState str
 	var coverageInt int
 	var sessionCount int
 	err := db.QueryRow(
-		`SELECT state,online,coverage_active,active_session_count FROM fee_pool_service_state WHERE client_id=?`,
+		`SELECT state,online,coverage_active,active_session_count FROM fee_pool_service_state WHERE client_pubkey_hex=?`,
 		clientID,
 	).Scan(&state, &onlineInt, &coverageInt, &sessionCount)
 	if err != nil {

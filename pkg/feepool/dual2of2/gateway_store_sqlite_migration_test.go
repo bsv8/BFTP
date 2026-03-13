@@ -18,7 +18,7 @@ func TestInitGatewayStore_UpgradeLegacyStatusToLifecycleState(t *testing.T) {
 	_, err = db.Exec(`
 		CREATE TABLE fee_pool_sessions (
 			spend_txid TEXT PRIMARY KEY,
-			client_id TEXT NOT NULL,
+			client_pubkey_hex TEXT NOT NULL,
 			client_bsv_pubkey_hex TEXT NOT NULL,
 			server_bsv_pubkey_hex TEXT NOT NULL,
 			input_amount_satoshi INTEGER NOT NULL,
@@ -43,7 +43,7 @@ func TestInitGatewayStore_UpgradeLegacyStatusToLifecycleState(t *testing.T) {
 		t.Helper()
 		_, err := db.Exec(
 			`INSERT INTO fee_pool_sessions(
-				spend_txid,client_id,client_bsv_pubkey_hex,server_bsv_pubkey_hex,
+				spend_txid,client_pubkey_hex,client_bsv_pubkey_hex,server_bsv_pubkey_hex,
 				input_amount_satoshi,pool_amount_satoshi,spend_tx_fee_satoshi,sequence_num,server_amount_satoshi,client_amount_satoshi,
 				base_txid,final_txid,base_tx_hex,current_tx_hex,status,created_at_unix,updated_at_unix
 			) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,

@@ -18,7 +18,7 @@ const ProtoLiveDemandAnnounce = "/bsv-transfer/live/demand/announce/1.0.0"
 
 type PublishDemandReq struct {
 	SeedHash            string   `protobuf:"bytes,1,opt,name=seed_hash,json=seedHash,proto3" json:"seed_hash"`
-	BuyerPeerID         string   `protobuf:"bytes,2,opt,name=buyer_peer_id,json=buyerPeerId,proto3" json:"buyer_peer_id"`
+	BuyerPeerID         string   `protobuf:"bytes,2,opt,name=buyer_pubkey_hex,json=buyerPeerId,proto3" json:"buyer_pubkey_hex"`
 	BuyerAddrs          []string `protobuf:"bytes,3,rep,name=buyer_addrs,json=buyerAddrs,proto3" json:"buyer_addrs,omitempty"`
 	ChunkCount          uint32   `protobuf:"varint,4,opt,name=chunk_count,json=chunkCount,proto3" json:"chunk_count"`
 	ChargeAmountSatoshi uint64   `protobuf:"varint,5,opt,name=charge_amount_satoshi,json=chargeAmountSatoshi,proto3" json:"charge_amount_satoshi,omitempty"`
@@ -31,7 +31,7 @@ type PublishDemandResp struct {
 
 type PublishLiveDemandReq struct {
 	StreamID            string   `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id"`
-	BuyerPeerID         string   `protobuf:"bytes,2,opt,name=buyer_peer_id,json=buyerPeerId,proto3" json:"buyer_peer_id"`
+	BuyerPeerID         string   `protobuf:"bytes,2,opt,name=buyer_pubkey_hex,json=buyerPeerId,proto3" json:"buyer_pubkey_hex"`
 	BuyerAddrs          []string `protobuf:"bytes,3,rep,name=buyer_addrs,json=buyerAddrs,proto3" json:"buyer_addrs,omitempty"`
 	HaveSegmentIndex    int64    `protobuf:"varint,4,opt,name=have_segment_index,json=haveSegmentIndex,proto3" json:"have_segment_index"`
 	Window              uint32   `protobuf:"varint,5,opt,name=window,proto3" json:"window"`
@@ -45,7 +45,7 @@ type PublishLiveDemandResp struct {
 
 type QuoteSubmitReq struct {
 	DemandID     string `protobuf:"bytes,1,opt,name=demand_id,json=demandId,proto3" json:"demand_id"`
-	SellerPeerID string `protobuf:"bytes,2,opt,name=seller_peer_id,json=sellerPeerId,proto3" json:"seller_peer_id"`
+	SellerPeerID string `protobuf:"bytes,2,opt,name=seller_pubkey_hex,json=sellerPeerId,proto3" json:"seller_pubkey_hex"`
 	SeedPrice    uint64 `protobuf:"varint,3,opt,name=seed_price,json=seedPrice,proto3" json:"seed_price"`
 	ChunkPrice   uint64 `protobuf:"varint,4,opt,name=chunk_price,json=chunkPrice,proto3" json:"chunk_price"`
 	ExpiresAt    int64  `protobuf:"varint,5,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at"`
@@ -60,7 +60,7 @@ type QuoteListReq struct {
 }
 type QuoteItem struct {
 	QuoteID      string `protobuf:"bytes,1,opt,name=quote_id,json=quoteId,proto3" json:"quote_id"`
-	SellerPeerID string `protobuf:"bytes,2,opt,name=seller_peer_id,json=sellerPeerId,proto3" json:"seller_peer_id"`
+	SellerPeerID string `protobuf:"bytes,2,opt,name=seller_pubkey_hex,json=sellerPeerId,proto3" json:"seller_pubkey_hex"`
 	SeedPrice    uint64 `protobuf:"varint,3,opt,name=seed_price,json=seedPrice,proto3" json:"seed_price"`
 	ChunkPrice   uint64 `protobuf:"varint,4,opt,name=chunk_price,json=chunkPrice,proto3" json:"chunk_price"`
 	ExpiresAt    int64  `protobuf:"varint,5,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at"`
@@ -72,7 +72,7 @@ type QuoteListResp struct {
 type DemandAnnounceReq struct {
 	DemandID    string   `protobuf:"bytes,1,opt,name=demand_id,json=demandId,proto3" json:"demand_id"`
 	SeedHash    string   `protobuf:"bytes,2,opt,name=seed_hash,json=seedHash,proto3" json:"seed_hash"`
-	BuyerPeerID string   `protobuf:"bytes,3,opt,name=buyer_peer_id,json=buyerPeerId,proto3" json:"buyer_peer_id"`
+	BuyerPeerID string   `protobuf:"bytes,3,opt,name=buyer_pubkey_hex,json=buyerPeerId,proto3" json:"buyer_pubkey_hex"`
 	BuyerAddrs  []string `protobuf:"bytes,4,rep,name=buyer_addrs,json=buyerAddrs,proto3" json:"buyer_addrs"`
 	ChunkCount  uint32   `protobuf:"varint,5,opt,name=chunk_count,json=chunkCount,proto3" json:"chunk_count"`
 	Status      string   `protobuf:"bytes,6,opt,name=status,proto3" json:"status"`
@@ -84,7 +84,7 @@ type DemandAnnounceResp struct {
 type LiveDemandAnnounceReq struct {
 	DemandID         string   `protobuf:"bytes,1,opt,name=demand_id,json=demandId,proto3" json:"demand_id"`
 	StreamID         string   `protobuf:"bytes,2,opt,name=stream_id,json=streamId,proto3" json:"stream_id"`
-	BuyerPeerID      string   `protobuf:"bytes,3,opt,name=buyer_peer_id,json=buyerPeerId,proto3" json:"buyer_peer_id"`
+	BuyerPeerID      string   `protobuf:"bytes,3,opt,name=buyer_pubkey_hex,json=buyerPeerId,proto3" json:"buyer_pubkey_hex"`
 	BuyerAddrs       []string `protobuf:"bytes,4,rep,name=buyer_addrs,json=buyerAddrs,proto3" json:"buyer_addrs"`
 	HaveSegmentIndex int64    `protobuf:"varint,5,opt,name=have_segment_index,json=haveSegmentIndex,proto3" json:"have_segment_index"`
 	Window           uint32   `protobuf:"varint,6,opt,name=window,proto3" json:"window"`
@@ -101,7 +101,7 @@ type LiveQuoteSegment struct {
 
 type LiveQuoteSubmitReq struct {
 	DemandID           string              `protobuf:"bytes,1,opt,name=demand_id,json=demandId,proto3" json:"demand_id"`
-	SellerPeerID       string              `protobuf:"bytes,2,opt,name=seller_peer_id,json=sellerPeerId,proto3" json:"seller_peer_id"`
+	SellerPeerID       string              `protobuf:"bytes,2,opt,name=seller_pubkey_hex,json=sellerPeerId,proto3" json:"seller_pubkey_hex"`
 	StreamID           string              `protobuf:"bytes,3,opt,name=stream_id,json=streamId,proto3" json:"stream_id"`
 	LatestSegmentIndex uint64              `protobuf:"varint,4,opt,name=latest_segment_index,json=latestSegmentIndex,proto3" json:"latest_segment_index"`
 	RecentSegments     []*LiveQuoteSegment `protobuf:"bytes,5,rep,name=recent_segments,json=recentSegments,proto3" json:"recent_segments,omitempty"`
@@ -117,7 +117,7 @@ type LiveQuoteListReq struct {
 }
 type LiveQuoteItem struct {
 	QuoteID            string              `protobuf:"bytes,1,opt,name=quote_id,json=quoteId,proto3" json:"quote_id"`
-	SellerPeerID       string              `protobuf:"bytes,2,opt,name=seller_peer_id,json=sellerPeerId,proto3" json:"seller_peer_id"`
+	SellerPeerID       string              `protobuf:"bytes,2,opt,name=seller_pubkey_hex,json=sellerPeerId,proto3" json:"seller_pubkey_hex"`
 	StreamID           string              `protobuf:"bytes,3,opt,name=stream_id,json=streamId,proto3" json:"stream_id"`
 	LatestSegmentIndex uint64              `protobuf:"varint,4,opt,name=latest_segment_index,json=latestSegmentIndex,proto3" json:"latest_segment_index"`
 	RecentSegments     []*LiveQuoteSegment `protobuf:"bytes,5,rep,name=recent_segments,json=recentSegments,proto3" json:"recent_segments,omitempty"`
@@ -130,16 +130,16 @@ type LiveQuoteListResp struct {
 type DealAcceptReq struct {
 	DemandID           string `protobuf:"bytes,1,opt,name=demand_id,json=demandId,proto3" json:"demand_id"`
 	QuoteID            string `protobuf:"bytes,2,opt,name=quote_id,json=quoteId,proto3" json:"quote_id"`
-	BuyerPeerID        string `protobuf:"bytes,3,opt,name=buyer_peer_id,json=buyerPeerId,proto3" json:"buyer_peer_id"`
-	ArbiterPeerID      string `protobuf:"bytes,4,opt,name=arbiter_peer_id,json=arbiterPeerId,proto3" json:"arbiter_peer_id"`
-	DirectSellerPeerID string `protobuf:"bytes,5,opt,name=direct_seller_peer_id,json=directSellerPeerId,proto3" json:"direct_seller_peer_id,omitempty"`
+	BuyerPeerID        string `protobuf:"bytes,3,opt,name=buyer_pubkey_hex,json=buyerPeerId,proto3" json:"buyer_pubkey_hex"`
+	ArbiterPeerID      string `protobuf:"bytes,4,opt,name=arbiter_pubkey_hex,json=arbiterPeerId,proto3" json:"arbiter_pubkey_hex"`
+	DirectSellerPeerID string `protobuf:"bytes,5,opt,name=direct_seller_pubkey_hex,json=directSellerPeerId,proto3" json:"direct_seller_pubkey_hex,omitempty"`
 	DirectSeedPrice    uint64 `protobuf:"varint,6,opt,name=direct_seed_price,json=directSeedPrice,proto3" json:"direct_seed_price,omitempty"`
 	DirectChunkPrice   uint64 `protobuf:"varint,7,opt,name=direct_chunk_price,json=directChunkPrice,proto3" json:"direct_chunk_price,omitempty"`
 	DirectExpiresAt    int64  `protobuf:"varint,8,opt,name=direct_expires_at,json=directExpiresAt,proto3" json:"direct_expires_at,omitempty"`
 }
 type DealAcceptResp struct {
 	DealID       string `protobuf:"bytes,1,opt,name=deal_id,json=dealId,proto3" json:"deal_id"`
-	SellerPeerID string `protobuf:"bytes,2,opt,name=seller_peer_id,json=sellerPeerId,proto3" json:"seller_peer_id"`
+	SellerPeerID string `protobuf:"bytes,2,opt,name=seller_pubkey_hex,json=sellerPeerId,proto3" json:"seller_pubkey_hex"`
 	ChunkPrice   uint64 `protobuf:"varint,3,opt,name=chunk_price,json=chunkPrice,proto3" json:"chunk_price"`
 	Status       string `protobuf:"bytes,4,opt,name=status,proto3" json:"status"`
 }
@@ -197,7 +197,7 @@ func InitDB(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS demands (
 			demand_id TEXT PRIMARY KEY,
 			seed_hash TEXT NOT NULL,
-			buyer_peer_id TEXT NOT NULL,
+			buyer_pubkey_hex TEXT NOT NULL,
 			buyer_addrs_json TEXT NOT NULL DEFAULT '[]',
 			chunk_count INTEGER NOT NULL,
 			status TEXT NOT NULL,
@@ -206,7 +206,7 @@ func InitDB(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS live_demands (
 			demand_id TEXT PRIMARY KEY,
 			stream_id TEXT NOT NULL,
-			buyer_peer_id TEXT NOT NULL,
+			buyer_pubkey_hex TEXT NOT NULL,
 			buyer_addrs_json TEXT NOT NULL DEFAULT '[]',
 			have_segment_index INTEGER NOT NULL,
 			window_size INTEGER NOT NULL,
@@ -216,7 +216,7 @@ func InitDB(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS quotes (
 			quote_id TEXT PRIMARY KEY,
 			demand_id TEXT NOT NULL,
-			seller_peer_id TEXT NOT NULL,
+			seller_pubkey_hex TEXT NOT NULL,
 			seed_price INTEGER NOT NULL,
 			chunk_price INTEGER NOT NULL,
 			expires_at INTEGER NOT NULL,
@@ -225,7 +225,7 @@ func InitDB(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS live_quotes (
 			quote_id TEXT PRIMARY KEY,
 			demand_id TEXT NOT NULL,
-			seller_peer_id TEXT NOT NULL,
+			seller_pubkey_hex TEXT NOT NULL,
 			stream_id TEXT NOT NULL,
 			latest_segment_index INTEGER NOT NULL,
 			recent_segments_json TEXT NOT NULL DEFAULT '[]',
@@ -236,9 +236,9 @@ func InitDB(db *sql.DB) error {
 			deal_id TEXT PRIMARY KEY,
 			demand_id TEXT NOT NULL,
 			quote_id TEXT NOT NULL,
-			buyer_peer_id TEXT NOT NULL,
-			seller_peer_id TEXT NOT NULL,
-			arbiter_peer_id TEXT NOT NULL,
+			buyer_pubkey_hex TEXT NOT NULL,
+			seller_pubkey_hex TEXT NOT NULL,
+			arbiter_pubkey_hex TEXT NOT NULL,
 			chunk_price INTEGER NOT NULL,
 			status TEXT NOT NULL,
 			created_at INTEGER NOT NULL
@@ -289,7 +289,7 @@ func (s *Service) PublishDemand(req PublishDemandReq) (PublishDemandResp, error)
 		addrsJSON = string(b)
 	}
 	id := "dmd_" + randHex(8)
-	_, err := s.DB.Exec(`INSERT INTO demands(demand_id,seed_hash,buyer_peer_id,buyer_addrs_json,chunk_count,status,created_at) VALUES(?,?,?,?,?,?,?)`, id, req.SeedHash, req.BuyerPeerID, addrsJSON, req.ChunkCount, "open", time.Now().Unix())
+	_, err := s.DB.Exec(`INSERT INTO demands(demand_id,seed_hash,buyer_pubkey_hex,buyer_addrs_json,chunk_count,status,created_at) VALUES(?,?,?,?,?,?,?)`, id, req.SeedHash, req.BuyerPeerID, addrsJSON, req.ChunkCount, "open", time.Now().Unix())
 	if err != nil {
 		return PublishDemandResp{}, err
 	}
@@ -309,7 +309,7 @@ func (s *Service) PublishLiveDemand(req PublishLiveDemandReq) (PublishLiveDemand
 		addrsJSON = string(b)
 	}
 	id := "ldmd_" + randHex(8)
-	_, err := s.DB.Exec(`INSERT INTO live_demands(demand_id,stream_id,buyer_peer_id,buyer_addrs_json,have_segment_index,window_size,status,created_at) VALUES(?,?,?,?,?,?,?,?)`,
+	_, err := s.DB.Exec(`INSERT INTO live_demands(demand_id,stream_id,buyer_pubkey_hex,buyer_addrs_json,have_segment_index,window_size,status,created_at) VALUES(?,?,?,?,?,?,?,?)`,
 		id,
 		strings.ToLower(strings.TrimSpace(req.StreamID)),
 		strings.TrimSpace(req.BuyerPeerID),
@@ -333,7 +333,7 @@ func (s *Service) SubmitQuote(req QuoteSubmitReq) (QuoteSubmitResp, error) {
 		req.ExpiresAt = time.Now().Add(10 * time.Minute).Unix()
 	}
 	id := "q_" + randHex(8)
-	_, err := s.DB.Exec(`INSERT INTO quotes(quote_id,demand_id,seller_peer_id,seed_price,chunk_price,expires_at,created_at) VALUES(?,?,?,?,?,?,?)`, id, req.DemandID, req.SellerPeerID, req.SeedPrice, req.ChunkPrice, req.ExpiresAt, time.Now().Unix())
+	_, err := s.DB.Exec(`INSERT INTO quotes(quote_id,demand_id,seller_pubkey_hex,seed_price,chunk_price,expires_at,created_at) VALUES(?,?,?,?,?,?,?)`, id, req.DemandID, req.SellerPeerID, req.SeedPrice, req.ChunkPrice, req.ExpiresAt, time.Now().Unix())
 	if err != nil {
 		return QuoteSubmitResp{}, err
 	}
@@ -341,7 +341,7 @@ func (s *Service) SubmitQuote(req QuoteSubmitReq) (QuoteSubmitResp, error) {
 }
 
 func (s *Service) ListQuotes(req QuoteListReq) (QuoteListResp, error) {
-	rows, err := s.DB.Query(`SELECT quote_id,seller_peer_id,seed_price,chunk_price,expires_at FROM quotes WHERE demand_id=? ORDER BY created_at ASC`, req.DemandID)
+	rows, err := s.DB.Query(`SELECT quote_id,seller_pubkey_hex,seed_price,chunk_price,expires_at FROM quotes WHERE demand_id=? ORDER BY created_at ASC`, req.DemandID)
 	if err != nil {
 		return QuoteListResp{}, err
 	}
@@ -371,7 +371,7 @@ func (s *Service) SubmitLiveQuote(req LiveQuoteSubmitReq) (LiveQuoteSubmitResp, 
 		return LiveQuoteSubmitResp{}, err
 	}
 	id := "lq_" + randHex(8)
-	_, err = s.DB.Exec(`INSERT INTO live_quotes(quote_id,demand_id,seller_peer_id,stream_id,latest_segment_index,recent_segments_json,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?)`,
+	_, err = s.DB.Exec(`INSERT INTO live_quotes(quote_id,demand_id,seller_pubkey_hex,stream_id,latest_segment_index,recent_segments_json,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?)`,
 		id,
 		strings.TrimSpace(req.DemandID),
 		strings.TrimSpace(req.SellerPeerID),
@@ -388,7 +388,7 @@ func (s *Service) SubmitLiveQuote(req LiveQuoteSubmitReq) (LiveQuoteSubmitResp, 
 }
 
 func (s *Service) ListLiveQuotes(req LiveQuoteListReq) (LiveQuoteListResp, error) {
-	rows, err := s.DB.Query(`SELECT quote_id,seller_peer_id,stream_id,latest_segment_index,recent_segments_json,expires_at FROM live_quotes WHERE demand_id=? ORDER BY created_at ASC`, strings.TrimSpace(req.DemandID))
+	rows, err := s.DB.Query(`SELECT quote_id,seller_pubkey_hex,stream_id,latest_segment_index,recent_segments_json,expires_at FROM live_quotes WHERE demand_id=? ORDER BY created_at ASC`, strings.TrimSpace(req.DemandID))
 	if err != nil {
 		return LiveQuoteListResp{}, err
 	}
@@ -420,7 +420,7 @@ func (s *Service) AcceptDeal(req DealAcceptReq) (DealAcceptResp, error) {
 		return DealAcceptResp{}, fmt.Errorf("invalid accept deal")
 	}
 	var demandBuyerID string
-	if err := s.DB.QueryRow(`SELECT buyer_peer_id FROM demands WHERE demand_id=?`, req.DemandID).Scan(&demandBuyerID); err != nil {
+	if err := s.DB.QueryRow(`SELECT buyer_pubkey_hex FROM demands WHERE demand_id=?`, req.DemandID).Scan(&demandBuyerID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return DealAcceptResp{}, fmt.Errorf("demand not found")
 		}
@@ -432,7 +432,7 @@ func (s *Service) AcceptDeal(req DealAcceptReq) (DealAcceptResp, error) {
 	var sellerID string
 	var chunkPrice uint64
 	if strings.TrimSpace(req.QuoteID) != "" {
-		if err := s.DB.QueryRow(`SELECT seller_peer_id,chunk_price FROM quotes WHERE quote_id=? AND demand_id=?`, req.QuoteID, req.DemandID).Scan(&sellerID, &chunkPrice); err != nil {
+		if err := s.DB.QueryRow(`SELECT seller_pubkey_hex,chunk_price FROM quotes WHERE quote_id=? AND demand_id=?`, req.QuoteID, req.DemandID).Scan(&sellerID, &chunkPrice); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return DealAcceptResp{}, fmt.Errorf("quote not found")
 			}
@@ -453,7 +453,7 @@ func (s *Service) AcceptDeal(req DealAcceptReq) (DealAcceptResp, error) {
 	if quoteID == "" {
 		quoteID = "direct"
 	}
-	_, err := s.DB.Exec(`INSERT INTO deals(deal_id,demand_id,quote_id,buyer_peer_id,seller_peer_id,arbiter_peer_id,chunk_price,status,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, id, req.DemandID, quoteID, req.BuyerPeerID, sellerID, req.ArbiterPeerID, chunkPrice, "channel_prepared", time.Now().Unix())
+	_, err := s.DB.Exec(`INSERT INTO deals(deal_id,demand_id,quote_id,buyer_pubkey_hex,seller_pubkey_hex,arbiter_pubkey_hex,chunk_price,status,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, id, req.DemandID, quoteID, req.BuyerPeerID, sellerID, req.ArbiterPeerID, chunkPrice, "channel_prepared", time.Now().Unix())
 	if err != nil {
 		return DealAcceptResp{}, err
 	}
