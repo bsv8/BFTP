@@ -6,12 +6,13 @@ import (
 )
 
 const (
-	lifecyclePendingBaseTx = "pending_base_tx"
-	lifecycleActive        = "active"
-	lifecycleFrozen        = "frozen"
-	lifecycleShouldSubmit  = "should_submit"
-	lifecycleClosed        = "closed"
-	lifecycleSettledExtern = "settled_external"
+	lifecyclePendingBaseTx  = "pending_base_tx"
+	lifecycleActive         = "active"
+	lifecycleFrozen         = "frozen"
+	lifecycleShouldSubmit   = "should_submit"
+	lifecycleCloseSubmitted = "close_submitted"
+	lifecycleClosed         = "closed"
+	lifecycleSettledExtern  = "settled_external"
 )
 
 const (

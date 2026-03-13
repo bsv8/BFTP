@@ -33,6 +33,10 @@ type GatewaySessionRow struct {
 	LastSubmitError         string
 	SubmitRetryCount        int
 	LastSubmitAttemptAtUnix int64
+	CloseSubmitAtUnix       int64
+	CloseObservedAtUnix     int64
+	CloseObserveStatus      string
+	CloseObserveReason      string
 
 	CreatedAt int64
 	UpdatedAt int64
@@ -73,6 +77,10 @@ func InitGatewayStore(db *sql.DB) error {
 			last_submit_error TEXT NOT NULL DEFAULT '',
 			submit_retry_count INTEGER NOT NULL DEFAULT 0,
 			last_submit_attempt_at_unix INTEGER NOT NULL DEFAULT 0,
+			close_submit_at_unix INTEGER NOT NULL DEFAULT 0,
+			close_observed_at_unix INTEGER NOT NULL DEFAULT 0,
+			close_observe_status TEXT NOT NULL DEFAULT '',
+			close_observe_reason TEXT NOT NULL DEFAULT '',
 
 			created_at_unix INTEGER NOT NULL,
 			updated_at_unix INTEGER NOT NULL
@@ -177,6 +185,10 @@ func InitGatewayStore(db *sql.DB) error {
 	if err := ensureChargeEventColumns(db); err != nil {
 		return err
 	}
+	// 旧库升级：补齐 close 观测列，用于“广播后观测 UTXO 再结案”。
+	if err := ensureSessionCloseObservationColumns(db); err != nil {
+		return err
+	}
 	// 旧库升级：补齐 lifecycle 状态机列，并回填初始值。
 	if err := ensureSessionLifecycleColumns(db); err != nil {
 		return err
@@ -254,6 +266,28 @@ func ensureSessionLifecycleColumns(db *sql.DB) error {
 	}
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_fee_pool_lifecycle ON fee_pool_sessions(lifecycle_state)`); err != nil {
 		return err
+	}
+	return nil
+}
+
+func ensureSessionCloseObservationColumns(db *sql.DB) error {
+	if db == nil {
+		return fmt.Errorf("db is nil")
+	}
+	stmts := []string{
+		`ALTER TABLE fee_pool_sessions ADD COLUMN close_submit_at_unix INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE fee_pool_sessions ADD COLUMN close_observed_at_unix INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE fee_pool_sessions ADD COLUMN close_observe_status TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE fee_pool_sessions ADD COLUMN close_observe_reason TEXT NOT NULL DEFAULT ''`,
+	}
+	for _, stmt := range stmts {
+		if _, err := db.Exec(stmt); err != nil {
+			lower := strings.ToLower(strings.TrimSpace(err.Error()))
+			if strings.Contains(lower, "duplicate column name") {
+				continue
+			}
+			return err
+		}
 	}
 	return nil
 }
@@ -472,7 +506,7 @@ func ListClientsByChargeReason(db *sql.DB, reason string) ([]string, error) {
 	return out, nil
 }
 
-const sessionSelectColumns = `spend_txid,client_id,client_bsv_pubkey_hex,server_bsv_pubkey_hex,input_amount_satoshi,pool_amount_satoshi,spend_tx_fee_satoshi,sequence_num,server_amount_satoshi,client_amount_satoshi,base_txid,final_txid,base_tx_hex,current_tx_hex,lifecycle_state,frozen_reason,last_submit_error,submit_retry_count,last_submit_attempt_at_unix,created_at_unix,updated_at_unix`
+const sessionSelectColumns = `spend_txid,client_id,client_bsv_pubkey_hex,server_bsv_pubkey_hex,input_amount_satoshi,pool_amount_satoshi,spend_tx_fee_satoshi,sequence_num,server_amount_satoshi,client_amount_satoshi,base_txid,final_txid,base_tx_hex,current_tx_hex,lifecycle_state,frozen_reason,last_submit_error,submit_retry_count,last_submit_attempt_at_unix,close_submit_at_unix,close_observed_at_unix,close_observe_status,close_observe_reason,created_at_unix,updated_at_unix`
 
 func sessionScanArgs(row *GatewaySessionRow) []any {
 	return []any{
@@ -483,6 +517,7 @@ func sessionScanArgs(row *GatewaySessionRow) []any {
 		&row.BaseTxID, &row.FinalTxID,
 		&row.BaseTxHex, &row.CurrentTxHex,
 		&row.LifecycleState, &row.FrozenReason, &row.LastSubmitError, &row.SubmitRetryCount, &row.LastSubmitAttemptAtUnix,
+		&row.CloseSubmitAtUnix, &row.CloseObservedAtUnix, &row.CloseObserveStatus, &row.CloseObserveReason,
 		&row.CreatedAt, &row.UpdatedAt,
 	}
 }
@@ -611,8 +646,8 @@ func InsertSession(db *sql.DB, row GatewaySessionRow) error {
 		row.LifecycleState = "pending_base_tx"
 	}
 	_, err := db.Exec(
-		`INSERT INTO fee_pool_sessions(spend_txid,client_id,client_bsv_pubkey_hex,server_bsv_pubkey_hex,input_amount_satoshi,pool_amount_satoshi,spend_tx_fee_satoshi,sequence_num,server_amount_satoshi,client_amount_satoshi,base_txid,final_txid,base_tx_hex,current_tx_hex,lifecycle_state,frozen_reason,last_submit_error,submit_retry_count,last_submit_attempt_at_unix,created_at_unix,updated_at_unix)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		`INSERT INTO fee_pool_sessions(spend_txid,client_id,client_bsv_pubkey_hex,server_bsv_pubkey_hex,input_amount_satoshi,pool_amount_satoshi,spend_tx_fee_satoshi,sequence_num,server_amount_satoshi,client_amount_satoshi,base_txid,final_txid,base_tx_hex,current_tx_hex,lifecycle_state,frozen_reason,last_submit_error,submit_retry_count,last_submit_attempt_at_unix,close_submit_at_unix,close_observed_at_unix,close_observe_status,close_observe_reason,created_at_unix,updated_at_unix)
+		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		row.SpendTxID,
 		row.ClientID,
 		strings.ToLower(strings.TrimSpace(row.ClientBSVCompressedPubHex)),
@@ -626,6 +661,10 @@ func InsertSession(db *sql.DB, row GatewaySessionRow) error {
 		strings.TrimSpace(row.LastSubmitError),
 		row.SubmitRetryCount,
 		row.LastSubmitAttemptAtUnix,
+		row.CloseSubmitAtUnix,
+		row.CloseObservedAtUnix,
+		strings.TrimSpace(row.CloseObserveStatus),
+		strings.TrimSpace(row.CloseObserveReason),
 		row.CreatedAt, row.UpdatedAt,
 	)
 	return err
@@ -639,7 +678,7 @@ func UpdateSession(db *sql.DB, row GatewaySessionRow) error {
 	}
 	_, err := db.Exec(
 		`UPDATE fee_pool_sessions
-		 SET sequence_num=?,server_amount_satoshi=?,client_amount_satoshi=?,base_txid=?,final_txid=?,base_tx_hex=?,current_tx_hex=?,lifecycle_state=?,frozen_reason=?,last_submit_error=?,submit_retry_count=?,last_submit_attempt_at_unix=?,updated_at_unix=?
+		 SET sequence_num=?,server_amount_satoshi=?,client_amount_satoshi=?,base_txid=?,final_txid=?,base_tx_hex=?,current_tx_hex=?,lifecycle_state=?,frozen_reason=?,last_submit_error=?,submit_retry_count=?,last_submit_attempt_at_unix=?,close_submit_at_unix=?,close_observed_at_unix=?,close_observe_status=?,close_observe_reason=?,updated_at_unix=?
 		 WHERE spend_txid=?`,
 		row.Sequence, row.ServerAmountSat, row.ClientAmountSat,
 		strings.TrimSpace(row.BaseTxID), strings.TrimSpace(row.FinalTxID),
@@ -649,6 +688,10 @@ func UpdateSession(db *sql.DB, row GatewaySessionRow) error {
 		strings.TrimSpace(row.LastSubmitError),
 		row.SubmitRetryCount,
 		row.LastSubmitAttemptAtUnix,
+		row.CloseSubmitAtUnix,
+		row.CloseObservedAtUnix,
+		strings.TrimSpace(row.CloseObserveStatus),
+		strings.TrimSpace(row.CloseObserveReason),
 		row.UpdatedAt,
 		strings.TrimSpace(row.SpendTxID),
 	)
@@ -781,6 +824,10 @@ func rebuildFeePoolSessionsWithoutStatus(db *sql.DB) error {
 			last_submit_error TEXT NOT NULL DEFAULT '',
 			submit_retry_count INTEGER NOT NULL DEFAULT 0,
 			last_submit_attempt_at_unix INTEGER NOT NULL DEFAULT 0,
+			close_submit_at_unix INTEGER NOT NULL DEFAULT 0,
+			close_observed_at_unix INTEGER NOT NULL DEFAULT 0,
+			close_observe_status TEXT NOT NULL DEFAULT '',
+			close_observe_reason TEXT NOT NULL DEFAULT '',
 			created_at_unix INTEGER NOT NULL,
 			updated_at_unix INTEGER NOT NULL
 		)`); err != nil {
@@ -790,7 +837,8 @@ func rebuildFeePoolSessionsWithoutStatus(db *sql.DB) error {
 		INSERT INTO fee_pool_sessions_new(
 			spend_txid,client_id,client_bsv_pubkey_hex,server_bsv_pubkey_hex,
 			input_amount_satoshi,pool_amount_satoshi,spend_tx_fee_satoshi,sequence_num,server_amount_satoshi,client_amount_satoshi,
-			base_txid,final_txid,base_tx_hex,current_tx_hex,lifecycle_state,frozen_reason,last_submit_error,submit_retry_count,last_submit_attempt_at_unix,created_at_unix,updated_at_unix
+			base_txid,final_txid,base_tx_hex,current_tx_hex,lifecycle_state,frozen_reason,last_submit_error,submit_retry_count,last_submit_attempt_at_unix,
+			close_submit_at_unix,close_observed_at_unix,close_observe_status,close_observe_reason,created_at_unix,updated_at_unix
 		)
 		SELECT
 			spend_txid,client_id,client_bsv_pubkey_hex,server_bsv_pubkey_hex,
@@ -801,6 +849,10 @@ func rebuildFeePoolSessionsWithoutStatus(db *sql.DB) error {
 			COALESCE(last_submit_error,''),
 			COALESCE(submit_retry_count,0),
 			COALESCE(last_submit_attempt_at_unix,0),
+			COALESCE(close_submit_at_unix,0),
+			COALESCE(close_observed_at_unix,0),
+			COALESCE(close_observe_status,''),
+			COALESCE(close_observe_reason,''),
 			created_at_unix,updated_at_unix
 		FROM fee_pool_sessions`); err != nil {
 		return err

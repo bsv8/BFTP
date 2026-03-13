@@ -517,6 +517,16 @@ func (s *GatewayService) Close(req CloseReq) (CloseResp, error) {
 	if row.LifecycleState == lifecycleClosed && row.FinalTxID != "" {
 		return CloseResp{Success: true, Status: "closed", Broadcasted: true, FinalSpendTxID: row.FinalTxID}, nil
 	}
+	if row.LifecycleState == lifecycleCloseSubmitted && strings.TrimSpace(row.FinalTxID) != "" {
+		finalized, err := s.finalizeSubmittedClose(&row)
+		if err != nil {
+			return CloseResp{}, err
+		}
+		if finalized {
+			return CloseResp{Success: true, Status: lifecycleClosed, Broadcasted: true, FinalSpendTxID: row.FinalTxID}, nil
+		}
+		return CloseResp{Success: true, Status: lifecycleCloseSubmitted, Broadcasted: true, FinalSpendTxID: row.FinalTxID}, nil
+	}
 	if row.LifecycleState != lifecycleActive && row.LifecycleState != lifecyclePendingBaseTx && row.LifecycleState != lifecycleShouldSubmit && row.LifecycleState != lifecycleFrozen {
 		return CloseResp{Success: false, Status: row.LifecycleState, Error: "session lifecycle does not allow close"}, nil
 	}
@@ -571,20 +581,32 @@ func (s *GatewayService) Close(req CloseReq) (CloseResp, error) {
 	if err != nil {
 		return CloseResp{Success: false, Status: row.LifecycleState, Error: "broadcast final tx failed: " + err.Error()}, nil
 	}
+	nowUnix := time.Now().Unix()
 	row.FinalTxID = finalTxID
-	row.LifecycleState = lifecycleClosed
+	row.CurrentTxHex = mergedTx.Hex()
+	row.LifecycleState = lifecycleCloseSubmitted
 	row.FrozenReason = ""
+	row.CloseSubmitAtUnix = nowUnix
+	row.CloseObserveStatus = "pending"
+	row.CloseObserveReason = "waiting_client_change_utxo"
+	row.CloseObservedAtUnix = 0
 	if err := UpdateSession(s.DB, row); err != nil {
 		return CloseResp{}, err
 	}
-	if err := syncServiceStateTx(s.DB, row.ClientID, nil, "session_closed", row.SpendTxID, ""); err != nil {
+	if err := syncServiceStateTx(s.DB, row.ClientID, nil, "session_close_submitted", row.SpendTxID, ""); err != nil {
+		return CloseResp{}, err
+	}
+	finalized, err := s.finalizeSubmittedClose(&row)
+	if err != nil {
 		return CloseResp{}, err
 	}
 	obs.Business("bitcast-gateway", "fee_pool_close_broadcasted", map[string]any{
-		"spend_txid": row.SpendTxID,
-		"final_txid": finalTxID,
+		"spend_txid":  row.SpendTxID,
+		"final_txid":  finalTxID,
+		"finalized":   finalized,
+		"close_state": row.LifecycleState,
 	})
-	return CloseResp{Success: true, Status: "closed", Broadcasted: true, FinalSpendTxID: finalTxID}, nil
+	return CloseResp{Success: true, Status: row.LifecycleState, Broadcasted: true, FinalSpendTxID: finalTxID}, nil
 }
 
 func (s *GatewayService) State(req StateReq) (StateResp, error) {
@@ -621,6 +643,14 @@ func (s *GatewayService) State(req StateReq) (StateResp, error) {
 	if !found {
 		return StateResp{Status: "not_found"}, nil
 	}
+	if row.LifecycleState == lifecycleCloseSubmitted && strings.TrimSpace(row.FinalTxID) != "" {
+		if _, fErr := s.finalizeSubmittedClose(&row); fErr != nil {
+			obs.Error("bitcast-gateway", "fee_pool_state_finalize_close_failed", map[string]any{
+				"spend_txid": row.SpendTxID,
+				"error":      fErr.Error(),
+			})
+		}
+	}
 	tip, phase, payability, expireHeight, phaseErr := s.queryPhase(row)
 	if phaseErr != nil {
 		phase = ""
@@ -643,6 +673,7 @@ func (s *GatewayService) State(req StateReq) (StateResp, error) {
 		Phase:           phase,
 		ExpireHeight:    expireHeight,
 		TipHeight:       tip,
+		OutpointSpent:   strings.TrimSpace(row.FinalTxID) != "",
 	}, nil
 }
 
@@ -675,11 +706,21 @@ func (s *GatewayService) PassiveCloseExpiredOnce() error {
 	if err != nil {
 		return fmt.Errorf("query tip height failed: %w", err)
 	}
-	rows, err := ListSessionsByLifecycleStates(s.DB, lifecycleActive, lifecycleFrozen, lifecycleShouldSubmit)
+	rows, err := ListSessionsByLifecycleStates(s.DB, lifecycleActive, lifecycleFrozen, lifecycleShouldSubmit, lifecycleCloseSubmitted)
 	if err != nil {
 		return err
 	}
 	for _, row := range rows {
+		if row.LifecycleState == lifecycleCloseSubmitted {
+			if _, fErr := s.finalizeSubmittedClose(&row); fErr != nil {
+				obs.Error("bitcast-gateway", "fee_pool_close_observe_failed", map[string]any{
+					"spend_txid": row.SpendTxID,
+					"final_txid": row.FinalTxID,
+					"error":      fErr.Error(),
+				})
+			}
+			continue
+		}
 		expireHeight, hasHeight, parseErr := sessionExpireHeight(row.CurrentTxHex)
 		if parseErr != nil {
 			obs.Error("bitcast-gateway", "fee_pool_passive_close_parse_failed", map[string]any{
@@ -742,8 +783,12 @@ func (s *GatewayService) PassiveCloseExpiredOnce() error {
 		}
 		row.FinalTxID = finalTxID
 		row.LastSubmitError = ""
-		row.LifecycleState = lifecycleClosed
+		row.LifecycleState = lifecycleCloseSubmitted
 		row.FrozenReason = ""
+		row.CloseSubmitAtUnix = time.Now().Unix()
+		row.CloseObserveStatus = "pending"
+		row.CloseObserveReason = "waiting_client_change_utxo"
+		row.CloseObservedAtUnix = 0
 		if uErr := UpdateSession(s.DB, row); uErr != nil {
 			obs.Error("bitcast-gateway", "fee_pool_passive_close_update_failed", map[string]any{
 				"spend_txid": row.SpendTxID,
@@ -752,10 +797,19 @@ func (s *GatewayService) PassiveCloseExpiredOnce() error {
 			})
 			continue
 		}
-		if syncErr := syncServiceStateTx(s.DB, row.ClientID, nil, "session_passive_closed", row.SpendTxID, ""); syncErr != nil {
+		if syncErr := syncServiceStateTx(s.DB, row.ClientID, nil, "session_passive_close_submitted", row.SpendTxID, ""); syncErr != nil {
 			obs.Error("bitcast-gateway", "fee_pool_passive_close_service_sync_failed", map[string]any{
 				"spend_txid": row.SpendTxID,
 				"error":      syncErr.Error(),
+			})
+			continue
+		}
+		finalized, fErr := s.finalizeSubmittedClose(&row)
+		if fErr != nil {
+			obs.Error("bitcast-gateway", "fee_pool_passive_close_finalize_failed", map[string]any{
+				"spend_txid": row.SpendTxID,
+				"final_txid": finalTxID,
+				"error":      fErr.Error(),
 			})
 			continue
 		}
@@ -764,9 +818,75 @@ func (s *GatewayService) PassiveCloseExpiredOnce() error {
 			"final_txid":    finalTxID,
 			"tip_height":    tip,
 			"expire_height": expireHeight,
+			"finalized":     finalized,
 		})
 	}
 	return nil
+}
+
+// finalizeSubmittedClose 以“可观测 UTXO”作为结案门槛：
+// - 有 client 找零金额时，必须观测到 final_tx 对应的 client UTXO 才能 closed；
+// - 没有 client 找零时，允许直接结案（不存在找零可观测目标）。
+func (s *GatewayService) finalizeSubmittedClose(row *GatewaySessionRow) (bool, error) {
+	if s == nil || s.DB == nil || s.Chain == nil || row == nil {
+		return false, fmt.Errorf("service not initialized")
+	}
+	if strings.TrimSpace(row.FinalTxID) == "" {
+		return false, nil
+	}
+	if row.LifecycleState == lifecycleClosed {
+		return true, nil
+	}
+	clientPub, err := ec.PublicKeyFromString(strings.TrimSpace(row.ClientBSVCompressedPubHex))
+	if err != nil {
+		return false, fmt.Errorf("invalid stored client pubkey: %w", err)
+	}
+	clientAddr, err := libs.GetAddressFromPublicKey(clientPub, s.IsMainnet)
+	if err != nil {
+		return false, fmt.Errorf("derive client address failed: %w", err)
+	}
+	if row.ClientAmountSat > 0 {
+		utxos, err := s.Chain.GetUTXOs(clientAddr.AddressString)
+		if err != nil {
+			row.CloseObserveStatus = "pending"
+			row.CloseObserveReason = "query_client_utxo_failed"
+			if uErr := UpdateSession(s.DB, *row); uErr != nil {
+				return false, uErr
+			}
+			return false, nil
+		}
+		found := false
+		for _, u := range utxos {
+			if strings.EqualFold(strings.TrimSpace(u.TxID), strings.TrimSpace(row.FinalTxID)) && u.Value == row.ClientAmountSat {
+				found = true
+				break
+			}
+		}
+		if !found {
+			row.CloseObserveStatus = "pending"
+			row.CloseObserveReason = "client_change_not_seen"
+			if uErr := UpdateSession(s.DB, *row); uErr != nil {
+				return false, uErr
+			}
+			return false, nil
+		}
+	}
+	nowUnix := time.Now().Unix()
+	row.LifecycleState = lifecycleClosed
+	row.CloseObservedAtUnix = nowUnix
+	row.CloseObserveStatus = "observed"
+	if row.ClientAmountSat > 0 {
+		row.CloseObserveReason = "client_change_observed"
+	} else {
+		row.CloseObserveReason = "no_client_change_required"
+	}
+	if err := UpdateSession(s.DB, *row); err != nil {
+		return false, err
+	}
+	if err := syncServiceStateTx(s.DB, row.ClientID, nil, "session_closed", row.SpendTxID, ""); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func sessionExpireHeight(txHex string) (uint32, bool, error) {
