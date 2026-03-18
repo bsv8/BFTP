@@ -86,6 +86,36 @@ func (g *guardUpstream) GetAddressHistoryContext(ctx context.Context, address st
 	return out, nil
 }
 
+func (g *guardUpstream) GetConfirmedHistoryPageContext(ctx context.Context, address string, q ConfirmedHistoryQuery) (ConfirmedHistoryPage, error) {
+	if err := g.waitTurn(ctx); err != nil {
+		return ConfirmedHistoryPage{}, err
+	}
+	rawPage, err := g.raw.GetConfirmedHistoryPageContext(ctx, address, wocraw.ConfirmedHistoryQuery{
+		Order:  q.Order,
+		Limit:  q.Limit,
+		Height: q.Height,
+		Token:  q.Token,
+	})
+	if err != nil {
+		return ConfirmedHistoryPage{}, err
+	}
+	out := ConfirmedHistoryPage{
+		Items:         make([]AddressHistoryItem, 0, len(rawPage.Items)),
+		NextPageToken: strings.TrimSpace(rawPage.NextPageToken),
+	}
+	for _, item := range rawPage.Items {
+		out.Items = append(out.Items, AddressHistoryItem{TxID: item.TxID, Height: item.Height})
+	}
+	return out, nil
+}
+
+func (g *guardUpstream) GetUnconfirmedHistoryContext(ctx context.Context, address string) ([]string, error) {
+	if err := g.waitTurn(ctx); err != nil {
+		return nil, err
+	}
+	return g.raw.GetUnconfirmedHistoryContext(ctx, address)
+}
+
 func (g *guardUpstream) GetTxDetailContext(ctx context.Context, txid string) (TxDetail, error) {
 	if err := g.waitTurn(ctx); err != nil {
 		return TxDetail{}, err

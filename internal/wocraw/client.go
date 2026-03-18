@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -56,6 +57,18 @@ type UTXO struct {
 type AddressHistoryItem struct {
 	TxID   string `json:"tx_hash"`
 	Height int64  `json:"height"`
+}
+
+type ConfirmedHistoryQuery struct {
+	Order  string
+	Limit  int
+	Height int64
+	Token  string
+}
+
+type ConfirmedHistoryPage struct {
+	Items         []AddressHistoryItem
+	NextPageToken string
 }
 
 type TxDetail struct {
@@ -197,6 +210,31 @@ func (c *Client) GetAddressHistoryContext(ctx context.Context, address string) (
 	return decodeAddressHistory(body)
 }
 
+func (c *Client) GetConfirmedHistoryPageContext(ctx context.Context, address string, q ConfirmedHistoryQuery) (ConfirmedHistoryPage, error) {
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return ConfirmedHistoryPage{}, fmt.Errorf("address is required")
+	}
+	query := buildConfirmedHistoryQuery(q)
+	body, err := c.get(ctx, fmt.Sprintf("%s/address/%s/confirmed/history%s", c.baseURL, address, query))
+	if err != nil {
+		return ConfirmedHistoryPage{}, err
+	}
+	return decodeConfirmedHistoryPage(body)
+}
+
+func (c *Client) GetUnconfirmedHistoryContext(ctx context.Context, address string) ([]string, error) {
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return nil, fmt.Errorf("address is required")
+	}
+	body, err := c.get(ctx, fmt.Sprintf("%s/address/%s/unconfirmed/history", c.baseURL, address))
+	if err != nil {
+		return nil, err
+	}
+	return decodeUnconfirmedHistory(body)
+}
+
 func (c *Client) GetTxDetailContext(ctx context.Context, txid string) (TxDetail, error) {
 	body, err := c.get(ctx, fmt.Sprintf("%s/tx/hash/%s", c.baseURL, strings.TrimSpace(txid)))
 	if err != nil {
@@ -313,6 +351,73 @@ func decodeAddressHistory(body []byte) ([]AddressHistoryItem, error) {
 		return nil, fmt.Errorf("woc address history error: %s", strings.TrimSpace(wrapped.Error))
 	}
 	return wrapped.Result, nil
+}
+
+func decodeConfirmedHistoryPage(body []byte) (ConfirmedHistoryPage, error) {
+	var plain []AddressHistoryItem
+	if err := json.Unmarshal(body, &plain); err == nil {
+		return ConfirmedHistoryPage{Items: plain}, nil
+	}
+	var wrapped struct {
+		Result        []AddressHistoryItem `json:"result"`
+		NextPageToken string               `json:"nextPageToken"`
+		Error         string               `json:"error"`
+	}
+	if err := json.Unmarshal(body, &wrapped); err != nil {
+		return ConfirmedHistoryPage{}, fmt.Errorf("decode confirmed history page: %w", err)
+	}
+	if strings.TrimSpace(wrapped.Error) != "" {
+		return ConfirmedHistoryPage{}, fmt.Errorf("woc confirmed history error: %s", strings.TrimSpace(wrapped.Error))
+	}
+	return ConfirmedHistoryPage{
+		Items:         wrapped.Result,
+		NextPageToken: strings.TrimSpace(wrapped.NextPageToken),
+	}, nil
+}
+
+func decodeUnconfirmedHistory(body []byte) ([]string, error) {
+	var wrapped struct {
+		Result []struct {
+			TxID string `json:"tx_hash"`
+		} `json:"result"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &wrapped); err != nil {
+		return nil, fmt.Errorf("decode unconfirmed history: %w", err)
+	}
+	if strings.TrimSpace(wrapped.Error) != "" {
+		return nil, fmt.Errorf("woc unconfirmed history error: %s", strings.TrimSpace(wrapped.Error))
+	}
+	out := make([]string, 0, len(wrapped.Result))
+	for _, item := range wrapped.Result {
+		txid := strings.ToLower(strings.TrimSpace(item.TxID))
+		if txid == "" {
+			continue
+		}
+		out = append(out, txid)
+	}
+	return out, nil
+}
+
+func buildConfirmedHistoryQuery(q ConfirmedHistoryQuery) string {
+	values := url.Values{}
+	order := strings.ToLower(strings.TrimSpace(q.Order))
+	if order == "asc" || order == "desc" {
+		values.Set("order", order)
+	}
+	if q.Limit > 0 {
+		values.Set("limit", strconv.Itoa(q.Limit))
+	}
+	if q.Height > 0 {
+		values.Set("height", strconv.FormatInt(q.Height, 10))
+	}
+	if token := strings.TrimSpace(q.Token); token != "" {
+		values.Set("token", token)
+	}
+	if len(values) == 0 {
+		return ""
+	}
+	return "?" + values.Encode()
 }
 
 func filterSpentInMempoolUTXOs(in []UTXO) []UTXO {

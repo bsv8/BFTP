@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +33,8 @@ func (s *GuardServer) Handler() http.Handler {
 	mux.HandleFunc("/v1/tip", s.handleTip)
 	mux.HandleFunc("/v1/utxos/", s.handleUTXOs)
 	mux.HandleFunc("/v1/broadcast", s.handleBroadcast)
+	mux.HandleFunc("/v1/address-history/confirmed/", s.handleConfirmedAddressHistory)
+	mux.HandleFunc("/v1/address-history/unconfirmed/", s.handleUnconfirmedAddressHistory)
 	mux.HandleFunc("/v1/address-history/", s.handleAddressHistory)
 	mux.HandleFunc("/v1/tx/", s.handleTx)
 	return mux
@@ -121,6 +124,65 @@ func (s *GuardServer) handleAddressHistory(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *GuardServer) handleConfirmedAddressHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	addr := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/v1/address-history/confirmed/"))
+	if addr == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing address"})
+		return
+	}
+	limit := 0
+	if s := strings.TrimSpace(r.URL.Query().Get("limit")); s != "" {
+		v, err := strconv.Atoi(s)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid limit"})
+			return
+		}
+		limit = v
+	}
+	height := int64(0)
+	if s := strings.TrimSpace(r.URL.Query().Get("height")); s != "" {
+		v, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid height"})
+			return
+		}
+		height = v
+	}
+	page, err := s.chain.GetConfirmedHistoryPageContext(r.Context(), addr, ConfirmedHistoryQuery{
+		Order:  strings.TrimSpace(r.URL.Query().Get("order")),
+		Limit:  limit,
+		Height: height,
+		Token:  strings.TrimSpace(r.URL.Query().Get("token")),
+	})
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": page.Items, "next_page_token": page.NextPageToken})
+}
+
+func (s *GuardServer) handleUnconfirmedAddressHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	addr := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/v1/address-history/unconfirmed/"))
+	if addr == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing address"})
+		return
+	}
+	txids, err := s.chain.GetUnconfirmedHistoryContext(r.Context(), addr)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"txids": txids})
 }
 
 func (s *GuardServer) handleTx(w http.ResponseWriter, r *http.Request) {

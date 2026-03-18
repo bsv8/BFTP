@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -101,6 +103,71 @@ func (c *GuardClient) GetAddressHistoryContext(ctx context.Context, address stri
 		return nil, fmt.Errorf("decode guard address history response: %w", err)
 	}
 	return out.Items, nil
+}
+
+func (c *GuardClient) GetConfirmedHistoryPage(address string, q ConfirmedHistoryQuery) (ConfirmedHistoryPage, error) {
+	return c.GetConfirmedHistoryPageContext(context.Background(), address, q)
+}
+
+func (c *GuardClient) GetConfirmedHistoryPageContext(ctx context.Context, address string, q ConfirmedHistoryQuery) (ConfirmedHistoryPage, error) {
+	path := "/v1/address-history/confirmed/" + strings.TrimSpace(address)
+	params := url.Values{}
+	if order := strings.ToLower(strings.TrimSpace(q.Order)); order == "asc" || order == "desc" {
+		params.Set("order", order)
+	}
+	if q.Limit > 0 {
+		params.Set("limit", strconv.Itoa(q.Limit))
+	}
+	if q.Height > 0 {
+		params.Set("height", strconv.FormatInt(q.Height, 10))
+	}
+	if token := strings.TrimSpace(q.Token); token != "" {
+		params.Set("token", token)
+	}
+	if len(params) > 0 {
+		path += "?" + params.Encode()
+	}
+	body, err := c.get(ctx, path)
+	if err != nil {
+		return ConfirmedHistoryPage{}, err
+	}
+	var out struct {
+		Items         []AddressHistoryItem `json:"items"`
+		NextPageToken string               `json:"next_page_token"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return ConfirmedHistoryPage{}, fmt.Errorf("decode guard confirmed history response: %w", err)
+	}
+	return ConfirmedHistoryPage{
+		Items:         out.Items,
+		NextPageToken: strings.TrimSpace(out.NextPageToken),
+	}, nil
+}
+
+func (c *GuardClient) GetUnconfirmedHistory(address string) ([]string, error) {
+	return c.GetUnconfirmedHistoryContext(context.Background(), address)
+}
+
+func (c *GuardClient) GetUnconfirmedHistoryContext(ctx context.Context, address string) ([]string, error) {
+	body, err := c.get(ctx, "/v1/address-history/unconfirmed/"+strings.TrimSpace(address))
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		TxIDs []string `json:"txids"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, fmt.Errorf("decode guard unconfirmed history response: %w", err)
+	}
+	ids := make([]string, 0, len(out.TxIDs))
+	for _, txid := range out.TxIDs {
+		txid = strings.ToLower(strings.TrimSpace(txid))
+		if txid == "" {
+			continue
+		}
+		ids = append(ids, txid)
+	}
+	return ids, nil
 }
 
 func (c *GuardClient) GetTxDetail(txid string) (TxDetail, error) {

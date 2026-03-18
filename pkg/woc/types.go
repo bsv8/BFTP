@@ -17,6 +17,18 @@ type AddressHistoryItem struct {
 	Height int64  `json:"height"`
 }
 
+type ConfirmedHistoryQuery struct {
+	Order  string `json:"order"`
+	Limit  int    `json:"limit"`
+	Height int64  `json:"height"`
+	Token  string `json:"token"`
+}
+
+type ConfirmedHistoryPage struct {
+	Items         []AddressHistoryItem `json:"items"`
+	NextPageToken string               `json:"next_page_token"`
+}
+
 type TxDetail struct {
 	TxID string     `json:"txid"`
 	Vin  []TxInput  `json:"vin"`
