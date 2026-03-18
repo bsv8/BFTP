@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -46,9 +47,10 @@ type Client struct {
 }
 
 type UTXO struct {
-	TxID  string `json:"tx_hash"`
-	Vout  uint32 `json:"tx_pos"`
-	Value uint64 `json:"value"`
+	TxID               string `json:"tx_hash"`
+	Vout               uint32 `json:"tx_pos"`
+	Value              uint64 `json:"value"`
+	IsSpentInMempoolTx bool   `json:"isSpentInMempoolTx,omitempty"`
 }
 
 type AddressHistoryItem struct {
@@ -121,15 +123,20 @@ func (c *Client) GetUTXOs(address string) ([]UTXO, error) {
 }
 
 func (c *Client) GetUTXOsContext(ctx context.Context, address string) ([]UTXO, error) {
-	body, err := c.get(ctx, fmt.Sprintf("%s/address/%s/unspent", c.baseURL, address))
+	address = strings.TrimSpace(address)
+	body, err := c.get(ctx, fmt.Sprintf("%s/address/%s/confirmed/unspent", c.baseURL, address))
 	if err != nil {
-		return nil, err
+		// 兼容旧版 WOC 路径，避免上游灰度期间接口切换造成不可用。
+		var httpErr *HTTPError
+		if !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusNotFound {
+			return nil, err
+		}
+		body, err = c.get(ctx, fmt.Sprintf("%s/address/%s/unspent", c.baseURL, address))
+		if err != nil {
+			return nil, err
+		}
 	}
-	var utxos []UTXO
-	if err := json.Unmarshal(body, &utxos); err != nil {
-		return nil, fmt.Errorf("decode utxos: %w", err)
-	}
-	return utxos, nil
+	return decodeUTXOs(body)
 }
 
 func (c *Client) GetTipHeight() (uint32, error) {
@@ -174,15 +181,20 @@ func (c *Client) BroadcastContext(ctx context.Context, txHex string) (string, er
 }
 
 func (c *Client) GetAddressHistoryContext(ctx context.Context, address string) ([]AddressHistoryItem, error) {
-	body, err := c.get(ctx, fmt.Sprintf("%s/address/%s/history", c.baseURL, strings.TrimSpace(address)))
+	address = strings.TrimSpace(address)
+	body, err := c.get(ctx, fmt.Sprintf("%s/address/%s/confirmed/history", c.baseURL, address))
 	if err != nil {
-		return nil, err
+		// 兼容旧版 WOC 路径，避免上游灰度期间接口切换造成不可用。
+		var httpErr *HTTPError
+		if !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusNotFound {
+			return nil, err
+		}
+		body, err = c.get(ctx, fmt.Sprintf("%s/address/%s/history", c.baseURL, address))
+		if err != nil {
+			return nil, err
+		}
 	}
-	var out []AddressHistoryItem
-	if err := json.Unmarshal(body, &out); err != nil {
-		return nil, fmt.Errorf("decode address history: %w", err)
-	}
-	return out, nil
+	return decodeAddressHistory(body)
 }
 
 func (c *Client) GetTxDetailContext(ctx context.Context, txid string) (TxDetail, error) {
@@ -265,4 +277,54 @@ func parseRetryAfterHeader(v string) time.Duration {
 		}
 	}
 	return 0
+}
+
+func decodeUTXOs(body []byte) ([]UTXO, error) {
+	var plain []UTXO
+	if err := json.Unmarshal(body, &plain); err == nil {
+		return filterSpentInMempoolUTXOs(plain), nil
+	}
+	var wrapped struct {
+		Result []UTXO `json:"result"`
+		Error  string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &wrapped); err != nil {
+		return nil, fmt.Errorf("decode utxos: %w", err)
+	}
+	if strings.TrimSpace(wrapped.Error) != "" {
+		return nil, fmt.Errorf("woc utxos error: %s", strings.TrimSpace(wrapped.Error))
+	}
+	return filterSpentInMempoolUTXOs(wrapped.Result), nil
+}
+
+func decodeAddressHistory(body []byte) ([]AddressHistoryItem, error) {
+	var plain []AddressHistoryItem
+	if err := json.Unmarshal(body, &plain); err == nil {
+		return plain, nil
+	}
+	var wrapped struct {
+		Result []AddressHistoryItem `json:"result"`
+		Error  string               `json:"error"`
+	}
+	if err := json.Unmarshal(body, &wrapped); err != nil {
+		return nil, fmt.Errorf("decode address history: %w", err)
+	}
+	if strings.TrimSpace(wrapped.Error) != "" {
+		return nil, fmt.Errorf("woc address history error: %s", strings.TrimSpace(wrapped.Error))
+	}
+	return wrapped.Result, nil
+}
+
+func filterSpentInMempoolUTXOs(in []UTXO) []UTXO {
+	if len(in) == 0 {
+		return in
+	}
+	out := make([]UTXO, 0, len(in))
+	for _, u := range in {
+		if u.IsSpentInMempoolTx {
+			continue
+		}
+		out = append(out, u)
+	}
+	return out
 }
