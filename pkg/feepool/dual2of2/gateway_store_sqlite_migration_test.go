@@ -106,4 +106,3 @@ func TestInitGatewayStore_UpgradeLegacyStatusToLifecycleState(t *testing.T) {
 		t.Fatalf("lifecycle index should exist after upgrade")
 	}
 }
-

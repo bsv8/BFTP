@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/bsv8/BFTP/pkg/woc"
 	ec "github.com/bsv-blockchain/go-sdk/primitives/ec"
 	tx "github.com/bsv-blockchain/go-sdk/transaction"
 	libs "github.com/bsv8/MultisigPool/pkg/libs"
@@ -90,7 +89,13 @@ type CloseResponse struct {
 	ServerSigBytes []byte
 }
 
-type UTXO = woc.UTXO
+// UTXO 是费用池域模型自己的最小未花费输出表示。
+// 设计约束：费用池域层不再直接引用具体上游实现类型，避免旧 woc 语义继续渗透。
+type UTXO struct {
+	TxID  string `json:"txid"`
+	Vout  uint32 `json:"vout"`
+	Value uint64 `json:"value"`
+}
 
 func BuildActor(name string, privHex string, isMain bool) (*Actor, error) {
 	priv, err := ec.PrivateKeyFromHex(privHex)

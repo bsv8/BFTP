@@ -7,7 +7,6 @@ import (
 	"github.com/bsv-blockchain/go-sdk/chainhash"
 	"github.com/bsv-blockchain/go-sdk/script"
 	tx "github.com/bsv-blockchain/go-sdk/transaction"
-	"github.com/bsv8/BFTP/pkg/woc"
 	_ "modernc.org/sqlite"
 )
 
@@ -15,9 +14,9 @@ type stubChainForValidation struct {
 	tip uint32
 }
 
-func (s stubChainForValidation) GetUTXOs(address string) ([]woc.UTXO, error) { return nil, nil }
-func (s stubChainForValidation) GetTipHeight() (uint32, error)               { return s.tip, nil }
-func (s stubChainForValidation) Broadcast(txHex string) (string, error)      { return "txid_stub", nil }
+func (s stubChainForValidation) GetUTXOs(address string) ([]UTXO, error) { return nil, nil }
+func (s stubChainForValidation) GetTipHeight() (uint32, error)           { return s.tip, nil }
+func (s stubChainForValidation) Broadcast(txHex string) (string, error)  { return "txid_stub", nil }
 
 func TestValidateBaseTxMatchesSessionSpend(t *testing.T) {
 	lock, err := script.NewFromHex("51")

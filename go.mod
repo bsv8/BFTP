@@ -10,6 +10,7 @@ require (
 )
 
 require (
+	github.com/bsv8/BSVChainAPI v0.0.0
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/ipfs/go-cid v0.5.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
@@ -34,5 +35,7 @@ require (
 )
 
 replace github.com/bsv8/MultisigPool => ../MultisigPool
+
+replace github.com/bsv8/BSVChainAPI => ../BSVChainAPI
 
 replace github.com/libp2p/go-libp2p/core => github.com/libp2p/go-libp2p v0.45.0

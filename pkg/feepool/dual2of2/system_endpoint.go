@@ -3,9 +3,9 @@ package dual2of2
 import (
 	"fmt"
 
-	"github.com/bsv8/BFTP/pkg/obs"
 	ec "github.com/bsv-blockchain/go-sdk/primitives/ec"
 	tx "github.com/bsv-blockchain/go-sdk/transaction"
+	"github.com/bsv8/BFTP/pkg/obs"
 	ce "github.com/bsv8/MultisigPool/pkg/dual_endpoint"
 	"github.com/bsv8/MultisigPool/pkg/libs"
 )
