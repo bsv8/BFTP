@@ -20,7 +20,7 @@ import (
 
 type ErrorResponsePB struct {
 	// IsError 作为错误响应标记位，避免普通响应字段误判为错误。
-	IsError bool `protobuf:"varint,1,opt,name=is_error,json=isError,proto3" json:"is_error,omitempty"`
+	IsError bool   `protobuf:"varint,1,opt,name=is_error,json=isError,proto3" json:"is_error,omitempty"`
 	Error   string `protobuf:"bytes,127,opt,name=error,proto3" json:"error,omitempty"`
 }
 
@@ -45,34 +45,6 @@ func HandleProto[TReq any, TResp any](h host.Host, protoID coreprotocol.ID, cfg 
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 
-		body, err := io.ReadAll(bufio.NewReader(s))
-		if err != nil {
-			writeErrProto(s, "decode envelope: "+err.Error())
-			return
-		}
-		var env appprotocol.SignedEnvelopePB
-		if err := oldproto.Unmarshal(body, &env); err != nil {
-			writeErrProto(s, "decode envelope: "+err.Error())
-			return
-		}
-		if err := appprotocol.VerifyEnvelopePB(&env, time.Now()); err != nil {
-			writeErrProto(s, err.Error())
-			return
-		}
-		if env.Domain != cfg.Domain || env.Network != cfg.Network {
-			writeErrProto(s, "domain/network mismatch")
-			return
-		}
-		if env.MsgType != string(protoID) {
-			writeErrProto(s, "msg_type mismatch")
-			return
-		}
-		if err := verifyRemotePeerBytes(s.Conn().RemotePeer(), env.SenderPubkey); err != nil {
-			writeErrProto(s, err.Error())
-			return
-		}
-
-		trace := cfg.Trace
 		localPID := ""
 		if h != nil {
 			localPID = h.ID().String()
@@ -81,6 +53,136 @@ func HandleProto[TReq any, TResp any](h host.Host, protoID coreprotocol.ID, cfg 
 		if s != nil && s.Conn() != nil {
 			remotePID = s.Conn().RemotePeer().String()
 		}
+
+		body, err := io.ReadAll(bufio.NewReader(s))
+		if err != nil {
+			respBody := writeErrProto(s, "decode envelope: "+err.Error())
+			if cfg.Trace != nil {
+				cfg.Trace.Handle(TraceEvent{
+					TS:                  nowRFC3339(),
+					Direction:           "recv",
+					Domain:              cfg.Domain,
+					Network:             cfg.Network,
+					ProtoID:             string(protoID),
+					LocalPeerID:         localPID,
+					RemotePeerID:        remotePID,
+					Error:               "decode envelope: " + err.Error(),
+					RequestEnvelopeWire: body,
+					ResponsePayloadWire: respBody,
+				})
+			}
+			return
+		}
+		var env appprotocol.SignedEnvelopePB
+		if err := oldproto.Unmarshal(body, &env); err != nil {
+			respBody := writeErrProto(s, "decode envelope: "+err.Error())
+			if cfg.Trace != nil {
+				cfg.Trace.Handle(TraceEvent{
+					TS:                  nowRFC3339(),
+					Direction:           "recv",
+					Domain:              cfg.Domain,
+					Network:             cfg.Network,
+					ProtoID:             string(protoID),
+					LocalPeerID:         localPID,
+					RemotePeerID:        remotePID,
+					Error:               "decode envelope: " + err.Error(),
+					RequestEnvelopeWire: body,
+					ResponsePayloadWire: respBody,
+				})
+			}
+			return
+		}
+		if err := appprotocol.VerifyEnvelopePB(&env, time.Now()); err != nil {
+			respBody := writeErrProto(s, err.Error())
+			if cfg.Trace != nil {
+				cfg.Trace.Handle(TraceEvent{
+					TS:                  nowRFC3339(),
+					Direction:           "recv",
+					Domain:              cfg.Domain,
+					Network:             cfg.Network,
+					ProtoID:             string(protoID),
+					MsgID:               env.MsgID,
+					LocalPeerID:         localPID,
+					RemotePeerID:        remotePID,
+					ExpireAt:            env.ExpireAt,
+					Request:             normalizeProtoTracePayload(env.Payload),
+					Error:               err.Error(),
+					RequestEnvelopeWire: body,
+					RequestPayloadWire:  env.Payload,
+					ResponsePayloadWire: respBody,
+				})
+			}
+			return
+		}
+		if env.Domain != cfg.Domain || env.Network != cfg.Network {
+			respBody := writeErrProto(s, "domain/network mismatch")
+			if cfg.Trace != nil {
+				cfg.Trace.Handle(TraceEvent{
+					TS:                  nowRFC3339(),
+					Direction:           "recv",
+					Domain:              cfg.Domain,
+					Network:             cfg.Network,
+					ProtoID:             string(protoID),
+					MsgID:               env.MsgID,
+					LocalPeerID:         localPID,
+					RemotePeerID:        remotePID,
+					ExpireAt:            env.ExpireAt,
+					Request:             normalizeProtoTracePayload(env.Payload),
+					Error:               "domain/network mismatch",
+					RequestEnvelopeWire: body,
+					RequestPayloadWire:  env.Payload,
+					ResponsePayloadWire: respBody,
+				})
+			}
+			return
+		}
+		if env.MsgType != string(protoID) {
+			respBody := writeErrProto(s, "msg_type mismatch")
+			if cfg.Trace != nil {
+				cfg.Trace.Handle(TraceEvent{
+					TS:                  nowRFC3339(),
+					Direction:           "recv",
+					Domain:              cfg.Domain,
+					Network:             cfg.Network,
+					ProtoID:             string(protoID),
+					MsgID:               env.MsgID,
+					LocalPeerID:         localPID,
+					RemotePeerID:        remotePID,
+					ExpireAt:            env.ExpireAt,
+					Request:             normalizeProtoTracePayload(env.Payload),
+					Error:               "msg_type mismatch",
+					RequestEnvelopeWire: body,
+					RequestPayloadWire:  env.Payload,
+					ResponsePayloadWire: respBody,
+				})
+			}
+			return
+		}
+		if err := verifyRemotePeerBytes(s.Conn().RemotePeer(), env.SenderPubkey); err != nil {
+			respBody := writeErrProto(s, err.Error())
+			if cfg.Trace != nil {
+				cfg.Trace.Handle(TraceEvent{
+					TS:                  nowRFC3339(),
+					Direction:           "recv",
+					Domain:              cfg.Domain,
+					Network:             cfg.Network,
+					ProtoID:             string(protoID),
+					MsgID:               env.MsgID,
+					LocalPeerID:         localPID,
+					RemotePeerID:        remotePID,
+					SenderPubkeyHex:     strings.ToLower(hex.EncodeToString(env.SenderPubkey)),
+					ExpireAt:            env.ExpireAt,
+					Request:             normalizeProtoTracePayload(env.Payload),
+					Error:               err.Error(),
+					RequestEnvelopeWire: body,
+					RequestPayloadWire:  env.Payload,
+					ResponsePayloadWire: respBody,
+				})
+			}
+			return
+		}
+
+		trace := cfg.Trace
 		senderPubHex := strings.ToLower(hex.EncodeToString(env.SenderPubkey))
 		if trace != nil {
 			ctx = context.WithValue(ctx, senderPubkeyHexContextKey, senderPubHex)
@@ -93,43 +195,49 @@ func HandleProto[TReq any, TResp any](h host.Host, protoID coreprotocol.ID, cfg 
 		if cfg.Replay != nil {
 			entry, found, err := cfg.Replay.Get(string(protoID), env.MsgID)
 			if err != nil {
-				writeErrProto(s, err.Error())
+				respBody := writeErrProto(s, err.Error())
 				if trace != nil {
 					trace.Handle(TraceEvent{
-						TS:              nowRFC3339(),
-						Direction:       "recv",
-						Domain:          cfg.Domain,
-						Network:         cfg.Network,
-						ProtoID:         string(protoID),
-						MsgID:           env.MsgID,
-						LocalPeerID:     localPID,
-						RemotePeerID:    remotePID,
-						SenderPubkeyHex: senderPubHex,
-						ExpireAt:        env.ExpireAt,
-						Request:         traceReq,
-						Error:           err.Error(),
+						TS:                  nowRFC3339(),
+						Direction:           "recv",
+						Domain:              cfg.Domain,
+						Network:             cfg.Network,
+						ProtoID:             string(protoID),
+						MsgID:               env.MsgID,
+						LocalPeerID:         localPID,
+						RemotePeerID:        remotePID,
+						SenderPubkeyHex:     senderPubHex,
+						ExpireAt:            env.ExpireAt,
+						Request:             traceReq,
+						Error:               err.Error(),
+						RequestEnvelopeWire: body,
+						RequestPayloadWire:  env.Payload,
+						ResponsePayloadWire: respBody,
 					})
 				}
 				return
 			}
 			if found {
 				if entry.PayloadHash != payloadHash {
-					writeErrProto(s, "ERR_IDEMPOTENCY_REPLAY")
+					respBody := writeErrProto(s, "ERR_IDEMPOTENCY_REPLAY")
 					if trace != nil {
 						trace.Handle(TraceEvent{
-							TS:              nowRFC3339(),
-							Direction:       "recv",
-							Domain:          cfg.Domain,
-							Network:         cfg.Network,
-							ProtoID:         string(protoID),
-							MsgID:           env.MsgID,
-							LocalPeerID:     localPID,
-							RemotePeerID:    remotePID,
-							SenderPubkeyHex: senderPubHex,
-							ExpireAt:        env.ExpireAt,
-							ReplayHit:       true,
-							Request:         traceReq,
-							Error:           "ERR_IDEMPOTENCY_REPLAY",
+							TS:                  nowRFC3339(),
+							Direction:           "recv",
+							Domain:              cfg.Domain,
+							Network:             cfg.Network,
+							ProtoID:             string(protoID),
+							MsgID:               env.MsgID,
+							LocalPeerID:         localPID,
+							RemotePeerID:        remotePID,
+							SenderPubkeyHex:     senderPubHex,
+							ExpireAt:            env.ExpireAt,
+							ReplayHit:           true,
+							Request:             traceReq,
+							Error:               "ERR_IDEMPOTENCY_REPLAY",
+							RequestEnvelopeWire: body,
+							RequestPayloadWire:  env.Payload,
+							ResponsePayloadWire: respBody,
 						})
 					}
 					return
@@ -137,19 +245,22 @@ func HandleProto[TReq any, TResp any](h host.Host, protoID coreprotocol.ID, cfg 
 				_, _ = s.Write(entry.Response)
 				if trace != nil {
 					trace.Handle(TraceEvent{
-						TS:              nowRFC3339(),
-						Direction:       "recv",
-						Domain:          cfg.Domain,
-						Network:         cfg.Network,
-						ProtoID:         string(protoID),
-						MsgID:           env.MsgID,
-						LocalPeerID:     localPID,
-						RemotePeerID:    remotePID,
-						SenderPubkeyHex: senderPubHex,
-						ExpireAt:        env.ExpireAt,
-						ReplayHit:       true,
-						Request:         traceReq,
-						Response:        normalizeProtoTracePayload(entry.Response),
+						TS:                  nowRFC3339(),
+						Direction:           "recv",
+						Domain:              cfg.Domain,
+						Network:             cfg.Network,
+						ProtoID:             string(protoID),
+						MsgID:               env.MsgID,
+						LocalPeerID:         localPID,
+						RemotePeerID:        remotePID,
+						SenderPubkeyHex:     senderPubHex,
+						ExpireAt:            env.ExpireAt,
+						ReplayHit:           true,
+						Request:             traceReq,
+						Response:            normalizeProtoTracePayload(entry.Response),
+						RequestEnvelopeWire: body,
+						RequestPayloadWire:  env.Payload,
+						ResponsePayloadWire: entry.Response,
 					})
 				}
 				return
@@ -158,63 +269,72 @@ func HandleProto[TReq any, TResp any](h host.Host, protoID coreprotocol.ID, cfg 
 
 		req, err := decodeProtoValue[TReq](env.Payload)
 		if err != nil {
-			writeErrProto(s, "decode payload: "+err.Error())
+			respBody := writeErrProto(s, "decode payload: "+err.Error())
 			if trace != nil {
 				trace.Handle(TraceEvent{
-					TS:              nowRFC3339(),
-					Direction:       "recv",
-					Domain:          cfg.Domain,
-					Network:         cfg.Network,
-					ProtoID:         string(protoID),
-					MsgID:           env.MsgID,
-					LocalPeerID:     localPID,
-					RemotePeerID:    remotePID,
-					SenderPubkeyHex: senderPubHex,
-					ExpireAt:        env.ExpireAt,
-					Request:         traceReq,
-					Error:           "decode payload: " + err.Error(),
+					TS:                  nowRFC3339(),
+					Direction:           "recv",
+					Domain:              cfg.Domain,
+					Network:             cfg.Network,
+					ProtoID:             string(protoID),
+					MsgID:               env.MsgID,
+					LocalPeerID:         localPID,
+					RemotePeerID:        remotePID,
+					SenderPubkeyHex:     senderPubHex,
+					ExpireAt:            env.ExpireAt,
+					Request:             traceReq,
+					Error:               "decode payload: " + err.Error(),
+					RequestEnvelopeWire: body,
+					RequestPayloadWire:  env.Payload,
+					ResponsePayloadWire: respBody,
 				})
 			}
 			return
 		}
 		resp, err := fn(ctx, req)
 		if err != nil {
-			writeErrProto(s, err.Error())
+			respBody := writeErrProto(s, err.Error())
 			if trace != nil {
 				trace.Handle(TraceEvent{
-					TS:              nowRFC3339(),
-					Direction:       "recv",
-					Domain:          cfg.Domain,
-					Network:         cfg.Network,
-					ProtoID:         string(protoID),
-					MsgID:           env.MsgID,
-					LocalPeerID:     localPID,
-					RemotePeerID:    remotePID,
-					SenderPubkeyHex: senderPubHex,
-					ExpireAt:        env.ExpireAt,
-					Request:         traceReq,
-					Error:           err.Error(),
+					TS:                  nowRFC3339(),
+					Direction:           "recv",
+					Domain:              cfg.Domain,
+					Network:             cfg.Network,
+					ProtoID:             string(protoID),
+					MsgID:               env.MsgID,
+					LocalPeerID:         localPID,
+					RemotePeerID:        remotePID,
+					SenderPubkeyHex:     senderPubHex,
+					ExpireAt:            env.ExpireAt,
+					Request:             traceReq,
+					Error:               err.Error(),
+					RequestEnvelopeWire: body,
+					RequestPayloadWire:  env.Payload,
+					ResponsePayloadWire: respBody,
 				})
 			}
 			return
 		}
 		respBody, err := encodeProtoValue(resp)
 		if err != nil {
-			writeErrProto(s, err.Error())
+			errBody := writeErrProto(s, err.Error())
 			if trace != nil {
 				trace.Handle(TraceEvent{
-					TS:              nowRFC3339(),
-					Direction:       "recv",
-					Domain:          cfg.Domain,
-					Network:         cfg.Network,
-					ProtoID:         string(protoID),
-					MsgID:           env.MsgID,
-					LocalPeerID:     localPID,
-					RemotePeerID:    remotePID,
-					SenderPubkeyHex: senderPubHex,
-					ExpireAt:        env.ExpireAt,
-					Request:         traceReq,
-					Error:           err.Error(),
+					TS:                  nowRFC3339(),
+					Direction:           "recv",
+					Domain:              cfg.Domain,
+					Network:             cfg.Network,
+					ProtoID:             string(protoID),
+					MsgID:               env.MsgID,
+					LocalPeerID:         localPID,
+					RemotePeerID:        remotePID,
+					SenderPubkeyHex:     senderPubHex,
+					ExpireAt:            env.ExpireAt,
+					Request:             traceReq,
+					Error:               err.Error(),
+					RequestEnvelopeWire: body,
+					RequestPayloadWire:  env.Payload,
+					ResponsePayloadWire: errBody,
 				})
 			}
 			return
@@ -225,18 +345,21 @@ func HandleProto[TReq any, TResp any](h host.Host, protoID coreprotocol.ID, cfg 
 		_, _ = s.Write(respBody)
 		if trace != nil {
 			trace.Handle(TraceEvent{
-				TS:              nowRFC3339(),
-				Direction:       "recv",
-				Domain:          cfg.Domain,
-				Network:         cfg.Network,
-				ProtoID:         string(protoID),
-				MsgID:           env.MsgID,
-				LocalPeerID:     localPID,
-				RemotePeerID:    remotePID,
-				SenderPubkeyHex: senderPubHex,
-				ExpireAt:        env.ExpireAt,
-				Request:         traceReq,
-				Response:        normalizeProtoTracePayload(respBody),
+				TS:                  nowRFC3339(),
+				Direction:           "recv",
+				Domain:              cfg.Domain,
+				Network:             cfg.Network,
+				ProtoID:             string(protoID),
+				MsgID:               env.MsgID,
+				LocalPeerID:         localPID,
+				RemotePeerID:        remotePID,
+				SenderPubkeyHex:     senderPubHex,
+				ExpireAt:            env.ExpireAt,
+				Request:             traceReq,
+				Response:            normalizeProtoTracePayload(respBody),
+				RequestEnvelopeWire: body,
+				RequestPayloadWire:  env.Payload,
+				ResponsePayloadWire: respBody,
 			})
 		}
 	})
@@ -286,18 +409,20 @@ func CallProto[TReq any, TResp any](ctx context.Context, h host.Host, pid peer.I
 	if err != nil {
 		if cfg.Trace != nil {
 			cfg.Trace.Handle(TraceEvent{
-				TS:           nowRFC3339(),
-				Direction:    "send",
-				Domain:       cfg.Domain,
-				Network:      cfg.Network,
-				ProtoID:      string(protoID),
-				MsgID:        env.MsgID,
-				LocalPeerID:  h.ID().String(),
-				RemotePeerID: pid.String(),
-				ExpireAt:     env.ExpireAt,
-				Request:      normalizeProtoTracePayload(payload),
-				Error:        err.Error(),
-				DurationMS:   time.Since(start).Milliseconds(),
+				TS:                  nowRFC3339(),
+				Direction:           "send",
+				Domain:              cfg.Domain,
+				Network:             cfg.Network,
+				ProtoID:             string(protoID),
+				MsgID:               env.MsgID,
+				LocalPeerID:         h.ID().String(),
+				RemotePeerID:        pid.String(),
+				ExpireAt:            env.ExpireAt,
+				Request:             normalizeProtoTracePayload(payload),
+				Error:               err.Error(),
+				DurationMS:          time.Since(start).Milliseconds(),
+				RequestEnvelopeWire: wire,
+				RequestPayloadWire:  payload,
 			})
 		}
 		return err
@@ -305,18 +430,20 @@ func CallProto[TReq any, TResp any](ctx context.Context, h host.Host, pid peer.I
 	if len(body) == 0 {
 		if cfg.Trace != nil {
 			cfg.Trace.Handle(TraceEvent{
-				TS:           nowRFC3339(),
-				Direction:    "send",
-				Domain:       cfg.Domain,
-				Network:      cfg.Network,
-				ProtoID:      string(protoID),
-				MsgID:        env.MsgID,
-				LocalPeerID:  h.ID().String(),
-				RemotePeerID: pid.String(),
-				ExpireAt:     env.ExpireAt,
-				Request:      normalizeProtoTracePayload(payload),
-				Error:        "empty response",
-				DurationMS:   time.Since(start).Milliseconds(),
+				TS:                  nowRFC3339(),
+				Direction:           "send",
+				Domain:              cfg.Domain,
+				Network:             cfg.Network,
+				ProtoID:             string(protoID),
+				MsgID:               env.MsgID,
+				LocalPeerID:         h.ID().String(),
+				RemotePeerID:        pid.String(),
+				ExpireAt:            env.ExpireAt,
+				Request:             normalizeProtoTracePayload(payload),
+				Error:               "empty response",
+				DurationMS:          time.Since(start).Milliseconds(),
+				RequestEnvelopeWire: wire,
+				RequestPayloadWire:  payload,
 			})
 		}
 		return fmt.Errorf("empty response")
@@ -325,19 +452,22 @@ func CallProto[TReq any, TResp any](ctx context.Context, h host.Host, pid peer.I
 	if err := oldproto.Unmarshal(body, &e); err == nil && e.IsError && strings.TrimSpace(e.Error) != "" {
 		if cfg.Trace != nil {
 			cfg.Trace.Handle(TraceEvent{
-				TS:           nowRFC3339(),
-				Direction:    "send",
-				Domain:       cfg.Domain,
-				Network:      cfg.Network,
-				ProtoID:      string(protoID),
-				MsgID:        env.MsgID,
-				LocalPeerID:  h.ID().String(),
-				RemotePeerID: pid.String(),
-				ExpireAt:     env.ExpireAt,
-				Request:      normalizeProtoTracePayload(payload),
-				Response:     normalizeProtoTracePayload(body),
-				Error:        e.Error,
-				DurationMS:   time.Since(start).Milliseconds(),
+				TS:                  nowRFC3339(),
+				Direction:           "send",
+				Domain:              cfg.Domain,
+				Network:             cfg.Network,
+				ProtoID:             string(protoID),
+				MsgID:               env.MsgID,
+				LocalPeerID:         h.ID().String(),
+				RemotePeerID:        pid.String(),
+				ExpireAt:            env.ExpireAt,
+				Request:             normalizeProtoTracePayload(payload),
+				Response:            normalizeProtoTracePayload(body),
+				Error:               e.Error,
+				DurationMS:          time.Since(start).Milliseconds(),
+				RequestEnvelopeWire: wire,
+				RequestPayloadWire:  payload,
+				ResponsePayloadWire: body,
 			})
 		}
 		return errors.New(e.Error)
@@ -347,38 +477,44 @@ func CallProto[TReq any, TResp any](ctx context.Context, h host.Host, pid peer.I
 		if uerr := oldproto.Unmarshal(body, &legacy); uerr == nil && strings.TrimSpace(legacy.Error) != "" {
 			if cfg.Trace != nil {
 				cfg.Trace.Handle(TraceEvent{
-					TS:           nowRFC3339(),
-					Direction:    "send",
-					Domain:       cfg.Domain,
-					Network:      cfg.Network,
-					ProtoID:      string(protoID),
-					MsgID:        env.MsgID,
-					LocalPeerID:  h.ID().String(),
-					RemotePeerID: pid.String(),
-					ExpireAt:     env.ExpireAt,
-					Request:      normalizeProtoTracePayload(payload),
-					Response:     normalizeProtoTracePayload(body),
-					Error:        legacy.Error,
-					DurationMS:   time.Since(start).Milliseconds(),
+					TS:                  nowRFC3339(),
+					Direction:           "send",
+					Domain:              cfg.Domain,
+					Network:             cfg.Network,
+					ProtoID:             string(protoID),
+					MsgID:               env.MsgID,
+					LocalPeerID:         h.ID().String(),
+					RemotePeerID:        pid.String(),
+					ExpireAt:            env.ExpireAt,
+					Request:             normalizeProtoTracePayload(payload),
+					Response:            normalizeProtoTracePayload(body),
+					Error:               legacy.Error,
+					DurationMS:          time.Since(start).Milliseconds(),
+					RequestEnvelopeWire: wire,
+					RequestPayloadWire:  payload,
+					ResponsePayloadWire: body,
 				})
 			}
 			return errors.New(legacy.Error)
 		}
 		if cfg.Trace != nil {
 			cfg.Trace.Handle(TraceEvent{
-				TS:           nowRFC3339(),
-				Direction:    "send",
-				Domain:       cfg.Domain,
-				Network:      cfg.Network,
-				ProtoID:      string(protoID),
-				MsgID:        env.MsgID,
-				LocalPeerID:  h.ID().String(),
-				RemotePeerID: pid.String(),
-				ExpireAt:     env.ExpireAt,
-				Request:      normalizeProtoTracePayload(payload),
-				Response:     normalizeProtoTracePayload(body),
-				Error:        err.Error(),
-				DurationMS:   time.Since(start).Milliseconds(),
+				TS:                  nowRFC3339(),
+				Direction:           "send",
+				Domain:              cfg.Domain,
+				Network:             cfg.Network,
+				ProtoID:             string(protoID),
+				MsgID:               env.MsgID,
+				LocalPeerID:         h.ID().String(),
+				RemotePeerID:        pid.String(),
+				ExpireAt:            env.ExpireAt,
+				Request:             normalizeProtoTracePayload(payload),
+				Response:            normalizeProtoTracePayload(body),
+				Error:               err.Error(),
+				DurationMS:          time.Since(start).Milliseconds(),
+				RequestEnvelopeWire: wire,
+				RequestPayloadWire:  payload,
+				ResponsePayloadWire: body,
 			})
 		}
 		return err
@@ -386,30 +522,34 @@ func CallProto[TReq any, TResp any](ctx context.Context, h host.Host, pid peer.I
 	if cfg.Trace != nil {
 		respBody, _ := encodeProtoValue(*out)
 		cfg.Trace.Handle(TraceEvent{
-			TS:           nowRFC3339(),
-			Direction:    "send",
-			Domain:       cfg.Domain,
-			Network:      cfg.Network,
-			ProtoID:      string(protoID),
-			MsgID:        env.MsgID,
-			LocalPeerID:  h.ID().String(),
-			RemotePeerID: pid.String(),
-			ExpireAt:     env.ExpireAt,
-			Request:      normalizeProtoTracePayload(payload),
-			Response:     normalizeProtoTracePayload(respBody),
-			DurationMS:   time.Since(start).Milliseconds(),
+			TS:                  nowRFC3339(),
+			Direction:           "send",
+			Domain:              cfg.Domain,
+			Network:             cfg.Network,
+			ProtoID:             string(protoID),
+			MsgID:               env.MsgID,
+			LocalPeerID:         h.ID().String(),
+			RemotePeerID:        pid.String(),
+			ExpireAt:            env.ExpireAt,
+			Request:             normalizeProtoTracePayload(payload),
+			Response:            normalizeProtoTracePayload(respBody),
+			DurationMS:          time.Since(start).Milliseconds(),
+			RequestEnvelopeWire: wire,
+			RequestPayloadWire:  payload,
+			ResponsePayloadWire: respBody,
 		})
 	}
 	return nil
 }
 
-func writeErrProto(w io.Writer, msg string) {
+func writeErrProto(w io.Writer, msg string) []byte {
 	b, err := marshalProtoDeterministic(&ErrorResponsePB{IsError: true, Error: msg})
 	if err != nil {
 		// 兜底：编码失败时直接写空错误串的 protobuf 消息。
 		b, _ = marshalProtoDeterministic(&ErrorResponsePB{IsError: true, Error: "internal proto encode failed"})
 	}
 	_, _ = w.Write(b)
+	return b
 }
 
 func marshalProtoDeterministic(m oldproto.Message) ([]byte, error) {

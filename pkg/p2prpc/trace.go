@@ -29,11 +29,30 @@ type TraceEvent struct {
 
 	ReplayHit bool `json:"replay_hit,omitempty"`
 
-	Request  any   `json:"request,omitempty"`
-	Response any   `json:"response,omitempty"`
+	Request  any    `json:"request,omitempty"`
+	Response any    `json:"response,omitempty"`
 	Error    string `json:"error,omitempty"`
 
 	DurationMS int64 `json:"duration_ms,omitempty"`
+
+	// 以下字段用于 raw 抓包索引：
+	// - sha256 / bytes / blob 是落盘后的稳定引用；
+	// - *Wire 仅在进程内 sink 里使用，不会进入 JSON。
+	RequestEnvelopeSHA256 string `json:"request_envelope_sha256,omitempty"`
+	RequestEnvelopeBytes  int    `json:"request_envelope_bytes,omitempty"`
+	RequestEnvelopeBlob   string `json:"request_envelope_blob,omitempty"`
+
+	RequestPayloadSHA256 string `json:"request_payload_sha256,omitempty"`
+	RequestPayloadBytes  int    `json:"request_payload_bytes,omitempty"`
+	RequestPayloadBlob   string `json:"request_payload_blob,omitempty"`
+
+	ResponsePayloadSHA256 string `json:"response_payload_sha256,omitempty"`
+	ResponsePayloadBytes  int    `json:"response_payload_bytes,omitempty"`
+	ResponsePayloadBlob   string `json:"response_payload_blob,omitempty"`
+
+	RequestEnvelopeWire []byte `json:"-"`
+	RequestPayloadWire  []byte `json:"-"`
+	ResponsePayloadWire []byte `json:"-"`
 }
 
 type NormalizeOptions struct {

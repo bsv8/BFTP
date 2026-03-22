@@ -102,6 +102,33 @@ func VerifyEnvelopePB(e *SignedEnvelopePB, now time.Time) error {
 	if len(e.Signature) == 0 {
 		return fmt.Errorf("signature required")
 	}
+	if err := VerifyEnvelopePBSignature(e); err != nil {
+		return err
+	}
+	return nil
+}
+
+// VerifyEnvelopePBSignature 仅校验签名与必要字段，不校验过期时间。
+// 解析工具复盘历史抓包时需要这条能力，避免历史消息天然过期后无法核查签名。
+func VerifyEnvelopePBSignature(e *SignedEnvelopePB) error {
+	if e == nil {
+		return fmt.Errorf("envelope is nil")
+	}
+	if e.Version != 1 {
+		return fmt.Errorf("invalid version")
+	}
+	if e.MsgID == "" || e.MsgType == "" || e.Domain == "" || e.Network == "" {
+		return fmt.Errorf("missing envelope fields")
+	}
+	if e.SigAlg != "ed25519" {
+		return fmt.Errorf("unsupported sig_alg")
+	}
+	if len(e.SenderPubkey) == 0 {
+		return fmt.Errorf("sender_pubkey required")
+	}
+	if len(e.Signature) == 0 {
+		return fmt.Errorf("signature required")
+	}
 	pub, err := crypto.UnmarshalPublicKey(e.SenderPubkey)
 	if err != nil {
 		return fmt.Errorf("unmarshal sender_pubkey: %w", err)
