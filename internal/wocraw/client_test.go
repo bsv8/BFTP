@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestGetUTXOsContext_NewConfirmedPath(t *testing.T) {
+func TestGetAddressConfirmedUnspent_NewConfirmedPath(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/address/addr1/confirmed/unspent" {
@@ -24,16 +24,16 @@ func TestGetUTXOsContext_NewConfirmedPath(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL)
-	utxos, err := c.GetUTXOsContext(context.Background(), "addr1")
+	utxos, err := c.GetAddressConfirmedUnspent(context.Background(), "addr1")
 	if err != nil {
-		t.Fatalf("GetUTXOsContext failed: %v", err)
+		t.Fatalf("GetAddressConfirmedUnspent failed: %v", err)
 	}
 	if len(utxos) != 1 || utxos[0].TxID != "tx1" || utxos[0].Vout != 1 || utxos[0].Value != 10 {
 		t.Fatalf("unexpected utxos: %+v", utxos)
 	}
 }
 
-func TestGetUTXOsContext_FallbackLegacyPath(t *testing.T) {
+func TestGetAddressConfirmedUnspent_FallbackLegacyPath(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -50,16 +50,16 @@ func TestGetUTXOsContext_FallbackLegacyPath(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL)
-	utxos, err := c.GetUTXOsContext(context.Background(), "addr1")
+	utxos, err := c.GetAddressConfirmedUnspent(context.Background(), "addr1")
 	if err != nil {
-		t.Fatalf("GetUTXOsContext failed: %v", err)
+		t.Fatalf("GetAddressConfirmedUnspent failed: %v", err)
 	}
 	if len(utxos) != 1 || utxos[0].TxID != "tx2" || utxos[0].Vout != 2 || utxos[0].Value != 20 {
 		t.Fatalf("unexpected utxos: %+v", utxos)
 	}
 }
 
-func TestGetAddressHistoryContext_NewConfirmedPath(t *testing.T) {
+func TestGetAddressConfirmedHistory_NewConfirmedPath(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/address/addr1/confirmed/history" {
@@ -75,16 +75,16 @@ func TestGetAddressHistoryContext_NewConfirmedPath(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL)
-	items, err := c.GetAddressHistoryContext(context.Background(), "addr1")
+	items, err := c.GetAddressConfirmedHistory(context.Background(), "addr1")
 	if err != nil {
-		t.Fatalf("GetAddressHistoryContext failed: %v", err)
+		t.Fatalf("GetAddressConfirmedHistory failed: %v", err)
 	}
 	if len(items) != 1 || items[0].TxID != "tx3" || items[0].Height != 100 {
 		t.Fatalf("unexpected history items: %+v", items)
 	}
 }
 
-func TestGetAddressHistoryContext_FallbackLegacyPath(t *testing.T) {
+func TestGetAddressConfirmedHistory_FallbackLegacyPath(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -101,16 +101,16 @@ func TestGetAddressHistoryContext_FallbackLegacyPath(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL)
-	items, err := c.GetAddressHistoryContext(context.Background(), "addr1")
+	items, err := c.GetAddressConfirmedHistory(context.Background(), "addr1")
 	if err != nil {
-		t.Fatalf("GetAddressHistoryContext failed: %v", err)
+		t.Fatalf("GetAddressConfirmedHistory failed: %v", err)
 	}
 	if len(items) != 1 || items[0].TxID != "tx4" || items[0].Height != 200 {
 		t.Fatalf("unexpected history items: %+v", items)
 	}
 }
 
-func TestGetConfirmedHistoryPageContext_UsesQuery(t *testing.T) {
+func TestGetAddressConfirmedHistoryPage_UsesQuery(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/address/addr1/confirmed/history" {
@@ -140,14 +140,14 @@ func TestGetConfirmedHistoryPageContext_UsesQuery(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL)
-	page, err := c.GetConfirmedHistoryPageContext(context.Background(), "addr1", ConfirmedHistoryQuery{
+	page, err := c.GetAddressConfirmedHistoryPage(context.Background(), "addr1", ConfirmedHistoryQuery{
 		Order:  "asc",
 		Limit:  50,
 		Height: 123,
 		Token:  "next-token",
 	})
 	if err != nil {
-		t.Fatalf("GetConfirmedHistoryPageContext failed: %v", err)
+		t.Fatalf("GetAddressConfirmedHistoryPage failed: %v", err)
 	}
 	if len(page.Items) != 1 || page.Items[0].TxID != "tx7" || page.Items[0].Height != 123 {
 		t.Fatalf("unexpected confirmed history page: %+v", page)
@@ -157,7 +157,7 @@ func TestGetConfirmedHistoryPageContext_UsesQuery(t *testing.T) {
 	}
 }
 
-func TestGetUnconfirmedHistoryContext(t *testing.T) {
+func TestGetAddressUnconfirmedHistory(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/address/addr1/unconfirmed/history" {
@@ -174,16 +174,16 @@ func TestGetUnconfirmedHistoryContext(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL)
-	items, err := c.GetUnconfirmedHistoryContext(context.Background(), "addr1")
+	items, err := c.GetAddressUnconfirmedHistory(context.Background(), "addr1")
 	if err != nil {
-		t.Fatalf("GetUnconfirmedHistoryContext failed: %v", err)
+		t.Fatalf("GetAddressUnconfirmedHistory failed: %v", err)
 	}
 	if len(items) != 2 || items[0] != "tx8" || items[1] != "tx9" {
 		t.Fatalf("unexpected unconfirmed history: %+v", items)
 	}
 }
 
-func TestGetUTXOsContext_FilterSpentInMempool(t *testing.T) {
+func TestGetAddressConfirmedUnspent_FilterSpentInMempool(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/address/addr1/confirmed/unspent" {
@@ -200,9 +200,9 @@ func TestGetUTXOsContext_FilterSpentInMempool(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL)
-	utxos, err := c.GetUTXOsContext(context.Background(), "addr1")
+	utxos, err := c.GetAddressConfirmedUnspent(context.Background(), "addr1")
 	if err != nil {
-		t.Fatalf("GetUTXOsContext failed: %v", err)
+		t.Fatalf("GetAddressConfirmedUnspent failed: %v", err)
 	}
 	if len(utxos) != 1 || utxos[0].TxID != "tx6" || utxos[0].Vout != 6 || utxos[0].Value != 60 {
 		t.Fatalf("unexpected utxos after mempool filter: %+v", utxos)

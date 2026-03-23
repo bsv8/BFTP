@@ -30,11 +30,7 @@ func NewGuardClient(baseURL string) *GuardClient {
 
 func (c *GuardClient) BaseURL() string { return c.baseURL }
 
-func (c *GuardClient) GetUTXOs(address string) ([]UTXO, error) {
-	return c.GetUTXOsContext(context.Background(), address)
-}
-
-func (c *GuardClient) GetUTXOsContext(ctx context.Context, address string) ([]UTXO, error) {
+func (c *GuardClient) GetAddressConfirmedUnspent(ctx context.Context, address string) ([]UTXO, error) {
 	body, err := c.get(ctx, "/v1/utxos/"+strings.TrimSpace(address))
 	if err != nil {
 		return nil, err
@@ -48,11 +44,7 @@ func (c *GuardClient) GetUTXOsContext(ctx context.Context, address string) ([]UT
 	return out.UTXOs, nil
 }
 
-func (c *GuardClient) GetTipHeight() (uint32, error) {
-	return c.GetTipHeightContext(context.Background())
-}
-
-func (c *GuardClient) GetTipHeightContext(ctx context.Context) (uint32, error) {
+func (c *GuardClient) GetChainInfo(ctx context.Context) (uint32, error) {
 	body, err := c.get(ctx, "/v1/tip")
 	if err != nil {
 		return 0, err
@@ -66,11 +58,7 @@ func (c *GuardClient) GetTipHeightContext(ctx context.Context) (uint32, error) {
 	return out.TipHeight, nil
 }
 
-func (c *GuardClient) Broadcast(txHex string) (string, error) {
-	return c.BroadcastContext(context.Background(), txHex)
-}
-
-func (c *GuardClient) BroadcastContext(ctx context.Context, txHex string) (string, error) {
+func (c *GuardClient) PostTxRaw(ctx context.Context, txHex string) (string, error) {
 	body, err := c.postJSON(ctx, "/v1/broadcast", map[string]string{"tx_hex": txHex})
 	if err != nil {
 		return "", err
@@ -87,11 +75,7 @@ func (c *GuardClient) BroadcastContext(ctx context.Context, txHex string) (strin
 	return strings.TrimSpace(out.TxID), nil
 }
 
-func (c *GuardClient) GetAddressHistory(address string) ([]AddressHistoryItem, error) {
-	return c.GetAddressHistoryContext(context.Background(), address)
-}
-
-func (c *GuardClient) GetAddressHistoryContext(ctx context.Context, address string) ([]AddressHistoryItem, error) {
+func (c *GuardClient) GetAddressConfirmedHistory(ctx context.Context, address string) ([]AddressHistoryItem, error) {
 	body, err := c.get(ctx, "/v1/address-history/"+strings.TrimSpace(address))
 	if err != nil {
 		return nil, err
@@ -105,11 +89,7 @@ func (c *GuardClient) GetAddressHistoryContext(ctx context.Context, address stri
 	return out.Items, nil
 }
 
-func (c *GuardClient) GetConfirmedHistoryPage(address string, q ConfirmedHistoryQuery) (ConfirmedHistoryPage, error) {
-	return c.GetConfirmedHistoryPageContext(context.Background(), address, q)
-}
-
-func (c *GuardClient) GetConfirmedHistoryPageContext(ctx context.Context, address string, q ConfirmedHistoryQuery) (ConfirmedHistoryPage, error) {
+func (c *GuardClient) GetAddressConfirmedHistoryPage(ctx context.Context, address string, q ConfirmedHistoryQuery) (ConfirmedHistoryPage, error) {
 	path := "/v1/address-history/confirmed/" + strings.TrimSpace(address)
 	params := url.Values{}
 	if order := strings.ToLower(strings.TrimSpace(q.Order)); order == "asc" || order == "desc" {
@@ -144,11 +124,7 @@ func (c *GuardClient) GetConfirmedHistoryPageContext(ctx context.Context, addres
 	}, nil
 }
 
-func (c *GuardClient) GetUnconfirmedHistory(address string) ([]string, error) {
-	return c.GetUnconfirmedHistoryContext(context.Background(), address)
-}
-
-func (c *GuardClient) GetUnconfirmedHistoryContext(ctx context.Context, address string) ([]string, error) {
+func (c *GuardClient) GetAddressUnconfirmedHistory(ctx context.Context, address string) ([]string, error) {
 	body, err := c.get(ctx, "/v1/address-history/unconfirmed/"+strings.TrimSpace(address))
 	if err != nil {
 		return nil, err
@@ -170,11 +146,7 @@ func (c *GuardClient) GetUnconfirmedHistoryContext(ctx context.Context, address 
 	return ids, nil
 }
 
-func (c *GuardClient) GetTxDetail(txid string) (TxDetail, error) {
-	return c.GetTxDetailContext(context.Background(), txid)
-}
-
-func (c *GuardClient) GetTxDetailContext(ctx context.Context, txid string) (TxDetail, error) {
+func (c *GuardClient) GetTxHash(ctx context.Context, txid string) (TxDetail, error) {
 	body, err := c.get(ctx, "/v1/tx/"+strings.TrimSpace(txid))
 	if err != nil {
 		return TxDetail{}, err

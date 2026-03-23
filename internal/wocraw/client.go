@@ -131,11 +131,7 @@ func New(baseURL string) *Client {
 
 func (c *Client) BaseURL() string { return c.baseURL }
 
-func (c *Client) GetUTXOs(address string) ([]UTXO, error) {
-	return c.GetUTXOsContext(context.Background(), address)
-}
-
-func (c *Client) GetUTXOsContext(ctx context.Context, address string) ([]UTXO, error) {
+func (c *Client) GetAddressConfirmedUnspent(ctx context.Context, address string) ([]UTXO, error) {
 	address = strings.TrimSpace(address)
 	body, err := c.get(ctx, fmt.Sprintf("%s/address/%s/confirmed/unspent", c.baseURL, address))
 	if err != nil {
@@ -152,11 +148,7 @@ func (c *Client) GetUTXOsContext(ctx context.Context, address string) ([]UTXO, e
 	return decodeUTXOs(body)
 }
 
-func (c *Client) GetTipHeight() (uint32, error) {
-	return c.GetTipHeightContext(context.Background())
-}
-
-func (c *Client) GetTipHeightContext(ctx context.Context) (uint32, error) {
+func (c *Client) GetChainInfo(ctx context.Context) (uint32, error) {
 	body, err := c.get(ctx, c.baseURL+"/chain/info")
 	if err != nil {
 		return 0, err
@@ -168,11 +160,7 @@ func (c *Client) GetTipHeightContext(ctx context.Context) (uint32, error) {
 	return info.Blocks, nil
 }
 
-func (c *Client) Broadcast(txHex string) (string, error) {
-	return c.BroadcastContext(context.Background(), txHex)
-}
-
-func (c *Client) BroadcastContext(ctx context.Context, txHex string) (string, error) {
+func (c *Client) PostTxRaw(ctx context.Context, txHex string) (string, error) {
 	body, err := c.postJSON(ctx, c.baseURL+"/tx/raw", map[string]string{"txhex": txHex})
 	if err != nil {
 		return "", err
@@ -193,7 +181,7 @@ func (c *Client) BroadcastContext(ctx context.Context, txHex string) (string, er
 	return "", fmt.Errorf("unexpected broadcast response: %s", string(body))
 }
 
-func (c *Client) GetAddressHistoryContext(ctx context.Context, address string) ([]AddressHistoryItem, error) {
+func (c *Client) GetAddressConfirmedHistory(ctx context.Context, address string) ([]AddressHistoryItem, error) {
 	address = strings.TrimSpace(address)
 	body, err := c.get(ctx, fmt.Sprintf("%s/address/%s/confirmed/history", c.baseURL, address))
 	if err != nil {
@@ -210,7 +198,7 @@ func (c *Client) GetAddressHistoryContext(ctx context.Context, address string) (
 	return decodeAddressHistory(body)
 }
 
-func (c *Client) GetConfirmedHistoryPageContext(ctx context.Context, address string, q ConfirmedHistoryQuery) (ConfirmedHistoryPage, error) {
+func (c *Client) GetAddressConfirmedHistoryPage(ctx context.Context, address string, q ConfirmedHistoryQuery) (ConfirmedHistoryPage, error) {
 	address = strings.TrimSpace(address)
 	if address == "" {
 		return ConfirmedHistoryPage{}, fmt.Errorf("address is required")
@@ -223,7 +211,7 @@ func (c *Client) GetConfirmedHistoryPageContext(ctx context.Context, address str
 	return decodeConfirmedHistoryPage(body)
 }
 
-func (c *Client) GetUnconfirmedHistoryContext(ctx context.Context, address string) ([]string, error) {
+func (c *Client) GetAddressUnconfirmedHistory(ctx context.Context, address string) ([]string, error) {
 	address = strings.TrimSpace(address)
 	if address == "" {
 		return nil, fmt.Errorf("address is required")
@@ -235,7 +223,7 @@ func (c *Client) GetUnconfirmedHistoryContext(ctx context.Context, address strin
 	return decodeUnconfirmedHistory(body)
 }
 
-func (c *Client) GetTxDetailContext(ctx context.Context, txid string) (TxDetail, error) {
+func (c *Client) GetTxHash(ctx context.Context, txid string) (TxDetail, error) {
 	body, err := c.get(ctx, fmt.Sprintf("%s/tx/hash/%s", c.baseURL, strings.TrimSpace(txid)))
 	if err != nil {
 		return TxDetail{}, err

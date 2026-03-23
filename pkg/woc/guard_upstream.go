@@ -42,11 +42,11 @@ func newGuardUpstream(raw *wocraw.Client, interval time.Duration) *guardUpstream
 	return &guardUpstream{raw: raw, interval: interval}
 }
 
-func (g *guardUpstream) GetUTXOsContext(ctx context.Context, address string) ([]UTXO, error) {
+func (g *guardUpstream) GetAddressConfirmedUnspent(ctx context.Context, address string) ([]UTXO, error) {
 	if err := g.waitTurn(ctx); err != nil {
 		return nil, err
 	}
-	rawUTXOs, err := g.raw.GetUTXOsContext(ctx, address)
+	rawUTXOs, err := g.raw.GetAddressConfirmedUnspent(ctx, address)
 	if err != nil {
 		return nil, err
 	}
@@ -57,25 +57,25 @@ func (g *guardUpstream) GetUTXOsContext(ctx context.Context, address string) ([]
 	return out, nil
 }
 
-func (g *guardUpstream) GetTipHeightContext(ctx context.Context) (uint32, error) {
+func (g *guardUpstream) GetChainInfo(ctx context.Context) (uint32, error) {
 	if err := g.waitTurn(ctx); err != nil {
 		return 0, err
 	}
-	return g.raw.GetTipHeightContext(ctx)
+	return g.raw.GetChainInfo(ctx)
 }
 
-func (g *guardUpstream) BroadcastContext(ctx context.Context, txHex string) (string, error) {
+func (g *guardUpstream) PostTxRaw(ctx context.Context, txHex string) (string, error) {
 	if err := g.waitTurn(ctx); err != nil {
 		return "", err
 	}
-	return g.raw.BroadcastContext(ctx, txHex)
+	return g.raw.PostTxRaw(ctx, txHex)
 }
 
-func (g *guardUpstream) GetAddressHistoryContext(ctx context.Context, address string) ([]AddressHistoryItem, error) {
+func (g *guardUpstream) GetAddressConfirmedHistory(ctx context.Context, address string) ([]AddressHistoryItem, error) {
 	if err := g.waitTurn(ctx); err != nil {
 		return nil, err
 	}
-	rawItems, err := g.raw.GetAddressHistoryContext(ctx, address)
+	rawItems, err := g.raw.GetAddressConfirmedHistory(ctx, address)
 	if err != nil {
 		return nil, err
 	}
@@ -86,11 +86,11 @@ func (g *guardUpstream) GetAddressHistoryContext(ctx context.Context, address st
 	return out, nil
 }
 
-func (g *guardUpstream) GetConfirmedHistoryPageContext(ctx context.Context, address string, q ConfirmedHistoryQuery) (ConfirmedHistoryPage, error) {
+func (g *guardUpstream) GetAddressConfirmedHistoryPage(ctx context.Context, address string, q ConfirmedHistoryQuery) (ConfirmedHistoryPage, error) {
 	if err := g.waitTurn(ctx); err != nil {
 		return ConfirmedHistoryPage{}, err
 	}
-	rawPage, err := g.raw.GetConfirmedHistoryPageContext(ctx, address, wocraw.ConfirmedHistoryQuery{
+	rawPage, err := g.raw.GetAddressConfirmedHistoryPage(ctx, address, wocraw.ConfirmedHistoryQuery{
 		Order:  q.Order,
 		Limit:  q.Limit,
 		Height: q.Height,
@@ -109,18 +109,18 @@ func (g *guardUpstream) GetConfirmedHistoryPageContext(ctx context.Context, addr
 	return out, nil
 }
 
-func (g *guardUpstream) GetUnconfirmedHistoryContext(ctx context.Context, address string) ([]string, error) {
+func (g *guardUpstream) GetAddressUnconfirmedHistory(ctx context.Context, address string) ([]string, error) {
 	if err := g.waitTurn(ctx); err != nil {
 		return nil, err
 	}
-	return g.raw.GetUnconfirmedHistoryContext(ctx, address)
+	return g.raw.GetAddressUnconfirmedHistory(ctx, address)
 }
 
-func (g *guardUpstream) GetTxDetailContext(ctx context.Context, txid string) (TxDetail, error) {
+func (g *guardUpstream) GetTxHash(ctx context.Context, txid string) (TxDetail, error) {
 	if err := g.waitTurn(ctx); err != nil {
 		return TxDetail{}, err
 	}
-	rawTx, err := g.raw.GetTxDetailContext(ctx, txid)
+	rawTx, err := g.raw.GetTxHash(ctx, txid)
 	if err != nil {
 		return TxDetail{}, err
 	}

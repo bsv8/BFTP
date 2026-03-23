@@ -25,8 +25,8 @@ func TestNewDefaultFeePoolChainUsesEnvPort(t *testing.T) {
 	if got, want := chain.ReadRoute(), (chainapi.Route{Provider: chainapi.WhatsOnChainProvider, Network: "test", Profile: "default"}); got != want {
 		t.Fatalf("ReadRoute()=%+v, want %+v", got, want)
 	}
-	if got := chain.TxSubmitPolicy(); len(got.Routes) != 1 || got.Routes[0] != chain.ReadRoute() {
-		t.Fatalf("unexpected TxSubmitPolicy(): %+v", got)
+	if got := chain.SubmitRoutes(); len(got) != 1 || got[0] != chain.ReadRoute() {
+		t.Fatalf("unexpected SubmitRoutes(): %+v", got)
 	}
 }
 
@@ -41,12 +41,8 @@ func TestNewEmbeddedFeePoolChainRejectsBroadcastOnlyReadRoute(t *testing.T) {
 		Routes: []chainapi.RouteConfig{
 			{Provider: chainapi.GorillaPoolARCProvider, Network: "main"},
 		},
-		ReadRoute: chainapi.Route{Provider: chainapi.GorillaPoolARCProvider, Network: "main"},
-		TxSubmitPolicy: chainapi.TxSubmitPolicy{
-			Routes: []chainapi.Route{
-				{Provider: chainapi.GorillaPoolARCProvider, Network: "main"},
-			},
-		},
+		ReadRoute:    chainapi.Route{Provider: chainapi.GorillaPoolARCProvider, Network: "main"},
+		SubmitRoutes: []chainapi.Route{{Provider: chainapi.GorillaPoolARCProvider, Network: "main"}},
 	})
 	if err == nil {
 		t.Fatalf("expected read route capability error")

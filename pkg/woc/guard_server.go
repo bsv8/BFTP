@@ -57,7 +57,7 @@ func (s *GuardServer) handleTip(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	tip, err := s.chain.GetTipHeightContext(r.Context())
+	tip, err := s.chain.GetChainInfo(r.Context())
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
@@ -75,7 +75,7 @@ func (s *GuardServer) handleUTXOs(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing address"})
 		return
 	}
-	utxos, err := s.chain.GetUTXOsContext(r.Context(), addr)
+	utxos, err := s.chain.GetAddressConfirmedUnspent(r.Context(), addr)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
@@ -100,7 +100,7 @@ func (s *GuardServer) handleBroadcast(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "tx_hex is required"})
 		return
 	}
-	txid, err := s.chain.BroadcastContext(r.Context(), req.TxHex)
+	txid, err := s.chain.PostTxRaw(r.Context(), req.TxHex)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
@@ -118,7 +118,7 @@ func (s *GuardServer) handleAddressHistory(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing address"})
 		return
 	}
-	items, err := s.chain.GetAddressHistoryContext(r.Context(), addr)
+	items, err := s.chain.GetAddressConfirmedHistory(r.Context(), addr)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
@@ -154,7 +154,7 @@ func (s *GuardServer) handleConfirmedAddressHistory(w http.ResponseWriter, r *ht
 		}
 		height = v
 	}
-	page, err := s.chain.GetConfirmedHistoryPageContext(r.Context(), addr, ConfirmedHistoryQuery{
+	page, err := s.chain.GetAddressConfirmedHistoryPage(r.Context(), addr, ConfirmedHistoryQuery{
 		Order:  strings.TrimSpace(r.URL.Query().Get("order")),
 		Limit:  limit,
 		Height: height,
@@ -177,7 +177,7 @@ func (s *GuardServer) handleUnconfirmedAddressHistory(w http.ResponseWriter, r *
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing address"})
 		return
 	}
-	txids, err := s.chain.GetUnconfirmedHistoryContext(r.Context(), addr)
+	txids, err := s.chain.GetAddressUnconfirmedHistory(r.Context(), addr)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
@@ -195,7 +195,7 @@ func (s *GuardServer) handleTx(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing txid"})
 		return
 	}
-	txj, err := s.chain.GetTxDetailContext(r.Context(), txid)
+	txj, err := s.chain.GetTxHash(r.Context(), txid)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
