@@ -29,6 +29,31 @@ type PublishDemandResp struct {
 	ChargedAmountSatoshi uint64 `protobuf:"varint,3,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
 }
 
+type PublishDemandBatchItemReq struct {
+	SeedHash   string `json:"seed_hash"`
+	ChunkCount uint32 `json:"chunk_count"`
+}
+
+type PublishDemandBatchItemResp struct {
+	SeedHash   string `json:"seed_hash"`
+	ChunkCount uint32 `json:"chunk_count"`
+	DemandID   string `json:"demand_id"`
+	Status     string `json:"status"`
+}
+
+type PublishDemandBatchReq struct {
+	Items               []PublishDemandBatchItemReq `json:"items,omitempty"`
+	BuyerPeerID         string                      `json:"buyer_pubkey_hex"`
+	BuyerAddrs          []string                    `json:"buyer_addrs,omitempty"`
+	ChargeAmountSatoshi uint64                      `json:"charge_amount_satoshi,omitempty"`
+}
+
+type PublishDemandBatchResp struct {
+	Items               []PublishDemandBatchItemResp `json:"items,omitempty"`
+	Status              string                       `json:"status"`
+	ChargedAmountSatoshi uint64                      `json:"charged_amount_satoshi,omitempty"`
+}
+
 type PublishLiveDemandReq struct {
 	StreamID            string   `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id"`
 	BuyerPeerID         string   `protobuf:"bytes,2,opt,name=buyer_pubkey_hex,json=buyerPeerId,proto3" json:"buyer_pubkey_hex"`
@@ -294,6 +319,65 @@ func (s *Service) PublishDemand(req PublishDemandReq) (PublishDemandResp, error)
 		return PublishDemandResp{}, err
 	}
 	return PublishDemandResp{DemandID: id, Status: "open"}, nil
+}
+
+func (s *Service) PublishDemandBatch(req PublishDemandBatchReq) (PublishDemandBatchResp, error) {
+	if strings.TrimSpace(req.BuyerPeerID) == "" || len(req.Items) == 0 {
+		return PublishDemandBatchResp{}, fmt.Errorf("invalid publish demand batch")
+	}
+	addrsJSON := "[]"
+	if len(req.BuyerAddrs) > 0 {
+		b, err := json.Marshal(req.BuyerAddrs)
+		if err != nil {
+			return PublishDemandBatchResp{}, err
+		}
+		addrsJSON = string(b)
+	}
+	seen := make(map[string]struct{}, len(req.Items))
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return PublishDemandBatchResp{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	items := make([]PublishDemandBatchItemResp, 0, len(req.Items))
+	now := time.Now().Unix()
+	for _, item := range req.Items {
+		seedHash := strings.ToLower(strings.TrimSpace(item.SeedHash))
+		if seedHash == "" || item.ChunkCount == 0 {
+			return PublishDemandBatchResp{}, fmt.Errorf("invalid publish demand batch item")
+		}
+		if _, ok := seen[seedHash]; ok {
+			return PublishDemandBatchResp{}, fmt.Errorf("duplicate seed hash in demand batch")
+		}
+		seen[seedHash] = struct{}{}
+		id := "dmd_" + randHex(8)
+		if _, err := tx.Exec(`INSERT INTO demands(demand_id,seed_hash,buyer_pubkey_hex,buyer_addrs_json,chunk_count,status,created_at) VALUES(?,?,?,?,?,?,?)`,
+			id,
+			seedHash,
+			req.BuyerPeerID,
+			addrsJSON,
+			item.ChunkCount,
+			"open",
+			now,
+		); err != nil {
+			return PublishDemandBatchResp{}, err
+		}
+		items = append(items, PublishDemandBatchItemResp{
+			SeedHash:   seedHash,
+			ChunkCount: item.ChunkCount,
+			DemandID:   id,
+			Status:     "open",
+		})
+	}
+	if err := tx.Commit(); err != nil {
+		return PublishDemandBatchResp{}, err
+	}
+	return PublishDemandBatchResp{
+		Items:                items,
+		Status:               "open",
+		ChargedAmountSatoshi: req.ChargeAmountSatoshi,
+	}, nil
 }
 
 func (s *Service) PublishLiveDemand(req PublishLiveDemandReq) (PublishLiveDemandResp, error) {

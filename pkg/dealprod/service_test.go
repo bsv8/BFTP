@@ -66,3 +66,39 @@ func TestPublishLiveDemandAndListLiveQuotes(t *testing.T) {
 		t.Fatalf("unexpected recent segment count: %d", len(list.Quotes[0].RecentSegments))
 	}
 }
+
+func TestPublishDemandBatch(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "dealprod-batch.sqlite")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	if err := InitDB(db); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	svc := &Service{DB: db}
+
+	resp, err := svc.PublishDemandBatch(PublishDemandBatchReq{
+		BuyerPeerID: "buyer-1",
+		BuyerAddrs:  []string{"/ip4/127.0.0.1/tcp/1"},
+		Items: []PublishDemandBatchItemReq{
+			{SeedHash: strings.Repeat("a", 64), ChunkCount: 1},
+			{SeedHash: strings.Repeat("b", 64), ChunkCount: 2},
+		},
+	})
+	if err != nil {
+		t.Fatalf("publish demand batch: %v", err)
+	}
+	if len(resp.Items) != 2 {
+		t.Fatalf("unexpected published item count: %d", len(resp.Items))
+	}
+	for _, item := range resp.Items {
+		if strings.TrimSpace(item.DemandID) == "" {
+			t.Fatalf("demand id missing: %+v", item)
+		}
+		if item.Status != "open" {
+			t.Fatalf("unexpected item status: %+v", item)
+		}
+	}
+}
