@@ -520,14 +520,10 @@ func (s *GatewayService) Close(req CloseReq) (CloseResp, error) {
 		return CloseResp{Success: true, Status: "closed", Broadcasted: true, FinalSpendTxID: row.FinalTxID}, nil
 	}
 	if row.LifecycleState == lifecycleCloseSubmitted && strings.TrimSpace(row.FinalTxID) != "" {
-		finalized, err := s.finalizeSubmittedClose(&row)
-		if err != nil {
+		if err := s.markAcceptedClose(&row, "legacy_close_submitted"); err != nil {
 			return CloseResp{}, err
 		}
-		if finalized {
-			return CloseResp{Success: true, Status: lifecycleClosed, Broadcasted: true, FinalSpendTxID: row.FinalTxID}, nil
-		}
-		return CloseResp{Success: true, Status: lifecycleCloseSubmitted, Broadcasted: true, FinalSpendTxID: row.FinalTxID}, nil
+		return CloseResp{Success: true, Status: lifecycleClosed, Broadcasted: true, FinalSpendTxID: row.FinalTxID}, nil
 	}
 	if row.LifecycleState != lifecycleActive && row.LifecycleState != lifecyclePendingBaseTx && row.LifecycleState != lifecycleShouldSubmit && row.LifecycleState != lifecycleFrozen {
 		return CloseResp{Success: false, Status: row.LifecycleState, Error: "session lifecycle does not allow close"}, nil
@@ -586,26 +582,13 @@ func (s *GatewayService) Close(req CloseReq) (CloseResp, error) {
 	nowUnix := time.Now().Unix()
 	row.FinalTxID = finalTxID
 	row.CurrentTxHex = mergedTx.Hex()
-	row.LifecycleState = lifecycleCloseSubmitted
-	row.FrozenReason = ""
 	row.CloseSubmitAtUnix = nowUnix
-	row.CloseObserveStatus = "pending"
-	row.CloseObserveReason = "waiting_client_change_utxo"
-	row.CloseObservedAtUnix = 0
-	if err := UpdateSession(s.DB, row); err != nil {
-		return CloseResp{}, err
-	}
-	if err := syncServiceStateTx(s.DB, row.ClientID, nil, "session_close_submitted", row.SpendTxID, ""); err != nil {
-		return CloseResp{}, err
-	}
-	finalized, err := s.finalizeSubmittedClose(&row)
-	if err != nil {
+	if err := s.markAcceptedClose(&row, "cooperative_close_accepted"); err != nil {
 		return CloseResp{}, err
 	}
 	obs.Business("bitcast-gateway", "fee_pool_close_broadcasted", map[string]any{
 		"spend_txid":  row.SpendTxID,
 		"final_txid":  finalTxID,
-		"finalized":   finalized,
 		"close_state": row.LifecycleState,
 	})
 	return CloseResp{Success: true, Status: row.LifecycleState, Broadcasted: true, FinalSpendTxID: finalTxID}, nil
@@ -646,7 +629,7 @@ func (s *GatewayService) State(req StateReq) (StateResp, error) {
 		return StateResp{Status: "not_found"}, nil
 	}
 	if row.LifecycleState == lifecycleCloseSubmitted && strings.TrimSpace(row.FinalTxID) != "" {
-		if _, fErr := s.finalizeSubmittedClose(&row); fErr != nil {
+		if fErr := s.markAcceptedClose(&row, "legacy_close_submitted"); fErr != nil {
 			obs.Error("bitcast-gateway", "fee_pool_state_finalize_close_failed", map[string]any{
 				"spend_txid": row.SpendTxID,
 				"error":      fErr.Error(),
@@ -708,13 +691,14 @@ func (s *GatewayService) PassiveCloseExpiredOnce() error {
 	if err != nil {
 		return fmt.Errorf("query tip height failed: %w", err)
 	}
+	// 旧库里可能残留 close_submitted；这里顺手收口为 closed，但新流程不再写入它。
 	rows, err := ListSessionsByLifecycleStates(s.DB, lifecycleActive, lifecycleFrozen, lifecycleShouldSubmit, lifecycleCloseSubmitted)
 	if err != nil {
 		return err
 	}
 	for _, row := range rows {
 		if row.LifecycleState == lifecycleCloseSubmitted {
-			if _, fErr := s.finalizeSubmittedClose(&row); fErr != nil {
+			if fErr := s.markAcceptedClose(&row, "legacy_close_submitted"); fErr != nil {
 				obs.Error("bitcast-gateway", "fee_pool_close_observe_failed", map[string]any{
 					"spend_txid": row.SpendTxID,
 					"final_txid": row.FinalTxID,
@@ -785,29 +769,8 @@ func (s *GatewayService) PassiveCloseExpiredOnce() error {
 		}
 		row.FinalTxID = finalTxID
 		row.LastSubmitError = ""
-		row.LifecycleState = lifecycleCloseSubmitted
-		row.FrozenReason = ""
 		row.CloseSubmitAtUnix = time.Now().Unix()
-		row.CloseObserveStatus = "pending"
-		row.CloseObserveReason = "waiting_client_change_utxo"
-		row.CloseObservedAtUnix = 0
-		if uErr := UpdateSession(s.DB, row); uErr != nil {
-			obs.Error("bitcast-gateway", "fee_pool_passive_close_update_failed", map[string]any{
-				"spend_txid": row.SpendTxID,
-				"final_txid": finalTxID,
-				"error":      uErr.Error(),
-			})
-			continue
-		}
-		if syncErr := syncServiceStateTx(s.DB, row.ClientID, nil, "session_passive_close_submitted", row.SpendTxID, ""); syncErr != nil {
-			obs.Error("bitcast-gateway", "fee_pool_passive_close_service_sync_failed", map[string]any{
-				"spend_txid": row.SpendTxID,
-				"error":      syncErr.Error(),
-			})
-			continue
-		}
-		finalized, fErr := s.finalizeSubmittedClose(&row)
-		if fErr != nil {
+		if fErr := s.markAcceptedClose(&row, "passive_close_accepted"); fErr != nil {
 			obs.Error("bitcast-gateway", "fee_pool_passive_close_finalize_failed", map[string]any{
 				"spend_txid": row.SpendTxID,
 				"final_txid": finalTxID,
@@ -820,75 +783,47 @@ func (s *GatewayService) PassiveCloseExpiredOnce() error {
 			"final_txid":    finalTxID,
 			"tip_height":    tip,
 			"expire_height": expireHeight,
-			"finalized":     finalized,
+			"close_state":   row.LifecycleState,
 		})
 	}
 	return nil
 }
 
-// finalizeSubmittedClose 以“可观测 UTXO”作为结案门槛：
-// - 有 client 找零金额时，必须观测到 final_tx 对应的 client UTXO 才能 closed；
-// - 没有 client 找零时，允许直接结案（不存在找零可观测目标）。
-func (s *GatewayService) finalizeSubmittedClose(row *GatewaySessionRow) (bool, error) {
-	if s == nil || s.DB == nil || s.Chain == nil || row == nil {
-		return false, fmt.Errorf("service not initialized")
+// markAcceptedClose 以“广播被链上后端接受”为关闭真值。
+// 设计说明：
+// - 协议层只关心 final tx 是否已被 WOC 接受，不再观察客户地址或客户钱包 UTXO；
+// - close_observe_* 是历史库字段，这里复用为“关闭完成时间/原因”，避免再引入一套重复字段；
+// - close_submitted 只作为旧数据兜底，新逻辑一律直接落 closed。
+func (s *GatewayService) markAcceptedClose(row *GatewaySessionRow, acceptReason string) error {
+	if s == nil || s.DB == nil || row == nil {
+		return fmt.Errorf("service not initialized")
 	}
 	if strings.TrimSpace(row.FinalTxID) == "" {
-		return false, nil
+		return fmt.Errorf("final_txid required")
 	}
 	if row.LifecycleState == lifecycleClosed {
-		return true, nil
-	}
-	clientPub, err := ec.PublicKeyFromString(strings.TrimSpace(row.ClientBSVCompressedPubHex))
-	if err != nil {
-		return false, fmt.Errorf("invalid stored client pubkey: %w", err)
-	}
-	clientAddr, err := libs.GetAddressFromPublicKey(clientPub, s.IsMainnet)
-	if err != nil {
-		return false, fmt.Errorf("derive client address failed: %w", err)
-	}
-	if row.ClientAmountSat > 0 {
-		utxos, err := s.Chain.GetUTXOs(clientAddr.AddressString)
-		if err != nil {
-			row.CloseObserveStatus = "pending"
-			row.CloseObserveReason = "query_client_utxo_failed"
-			if uErr := UpdateSession(s.DB, *row); uErr != nil {
-				return false, uErr
-			}
-			return false, nil
-		}
-		found := false
-		for _, u := range utxos {
-			if strings.EqualFold(strings.TrimSpace(u.TxID), strings.TrimSpace(row.FinalTxID)) && u.Value == row.ClientAmountSat {
-				found = true
-				break
-			}
-		}
-		if !found {
-			row.CloseObserveStatus = "pending"
-			row.CloseObserveReason = "client_change_not_seen"
-			if uErr := UpdateSession(s.DB, *row); uErr != nil {
-				return false, uErr
-			}
-			return false, nil
-		}
+		return nil
 	}
 	nowUnix := time.Now().Unix()
 	row.LifecycleState = lifecycleClosed
-	row.CloseObservedAtUnix = nowUnix
-	row.CloseObserveStatus = "observed"
-	if row.ClientAmountSat > 0 {
-		row.CloseObserveReason = "client_change_observed"
-	} else {
-		row.CloseObserveReason = "no_client_change_required"
+	row.FrozenReason = ""
+	if row.CloseSubmitAtUnix == 0 {
+		row.CloseSubmitAtUnix = nowUnix
 	}
+	row.CloseObservedAtUnix = nowUnix
+	row.CloseObserveStatus = "accepted"
+	acceptReason = strings.TrimSpace(acceptReason)
+	if acceptReason == "" {
+		acceptReason = "broadcast_accepted"
+	}
+	row.CloseObserveReason = acceptReason
 	if err := UpdateSession(s.DB, *row); err != nil {
-		return false, err
+		return err
 	}
 	if err := syncServiceStateTx(s.DB, row.ClientID, nil, "session_closed", row.SpendTxID, ""); err != nil {
-		return false, err
+		return err
 	}
-	return true, nil
+	return nil
 }
 
 func sessionExpireHeight(txHex string) (uint32, bool, error) {

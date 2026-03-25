@@ -6,10 +6,12 @@ import (
 )
 
 const (
-	lifecyclePendingBaseTx  = "pending_base_tx"
-	lifecycleActive         = "active"
-	lifecycleFrozen         = "frozen"
-	lifecycleShouldSubmit   = "should_submit"
+	lifecyclePendingBaseTx = "pending_base_tx"
+	lifecycleActive        = "active"
+	lifecycleFrozen        = "frozen"
+	lifecycleShouldSubmit  = "should_submit"
+	// 历史遗留状态：旧实现把“已广播待观察”持久化到了库里。
+	// 现实现以“广播被 WOC 接受”为关闭真值，不再新写入该状态，仅用于启动后顺手收口旧数据。
 	lifecycleCloseSubmitted = "close_submitted"
 	lifecycleClosed         = "closed"
 	lifecycleSettledExtern  = "settled_external"
