@@ -81,3 +81,19 @@ func (*LiveDemandPublishPaidReq) ProtoMessage()    {}
 func (m *LiveDemandPublishPaidResp) Reset()         { *m = LiveDemandPublishPaidResp{} }
 func (m *LiveDemandPublishPaidResp) String() string { return oldproto.CompactTextString(m) }
 func (*LiveDemandPublishPaidResp) ProtoMessage()    {}
+
+func (m *NodeReachabilityAnnouncePaidReq) Reset()         { *m = NodeReachabilityAnnouncePaidReq{} }
+func (m *NodeReachabilityAnnouncePaidReq) String() string { return oldproto.CompactTextString(m) }
+func (*NodeReachabilityAnnouncePaidReq) ProtoMessage()    {}
+
+func (m *NodeReachabilityAnnouncePaidResp) Reset()         { *m = NodeReachabilityAnnouncePaidResp{} }
+func (m *NodeReachabilityAnnouncePaidResp) String() string { return oldproto.CompactTextString(m) }
+func (*NodeReachabilityAnnouncePaidResp) ProtoMessage()    {}
+
+func (m *NodeReachabilityQueryPaidReq) Reset()         { *m = NodeReachabilityQueryPaidReq{} }
+func (m *NodeReachabilityQueryPaidReq) String() string { return oldproto.CompactTextString(m) }
+func (*NodeReachabilityQueryPaidReq) ProtoMessage()    {}
+
+func (m *NodeReachabilityQueryPaidResp) Reset()         { *m = NodeReachabilityQueryPaidResp{} }
+func (m *NodeReachabilityQueryPaidResp) String() string { return oldproto.CompactTextString(m) }
+func (*NodeReachabilityQueryPaidResp) ProtoMessage()    {}

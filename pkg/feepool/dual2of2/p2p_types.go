@@ -18,6 +18,7 @@ type InfoResp struct {
 	SingleCycleFeeSatoshi    uint64 `protobuf:"varint,6,opt,name=single_cycle_fee_satoshi,json=singleCycleFeeSatoshi,proto3" json:"single_cycle_fee_satoshi"`
 	SinglePublishFeeSatoshi  uint64 `protobuf:"varint,7,opt,name=single_publish_fee_satoshi,json=singlePublishFeeSatoshi,proto3" json:"single_publish_fee_satoshi"`
 	RenewNotifyBeforeSeconds uint32 `protobuf:"varint,8,opt,name=renew_notify_before_seconds,json=renewNotifyBeforeSeconds,proto3" json:"renew_notify_before_seconds"`
+	SingleQueryFeeSatoshi    uint64 `protobuf:"varint,9,opt,name=single_query_fee_satoshi,json=singleQueryFeeSatoshi,proto3" json:"single_query_fee_satoshi"`
 }
 
 type CreateReq struct {
@@ -225,4 +226,72 @@ type LiveDemandPublishPaidResp struct {
 	ChargedAmount uint64 `protobuf:"varint,5,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
 	UpdatedTxID   string `protobuf:"bytes,6,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
 	Error         string `protobuf:"bytes,7,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+}
+
+// NodeReachabilityAnnouncePaidReq/Resp 是“地址声明发布 + 扣费”的组合接口。
+// 设计说明：
+// - 地址声明是节点自己对“我当前在哪些 libp2p 地址上可达”的签名声明；
+// - gateway 只负责收费、缓存、转发，不能伪造节点主体；
+// - 地址声明版本只看 head_height + seq，避免网关自行发明“最佳地址”语义。
+type NodeReachabilityAnnouncePaidReq struct {
+	ClientID string `protobuf:"bytes,1,opt,name=client_pubkey_hex,json=clientId,proto3" json:"client_pubkey_hex"`
+
+	Multiaddrs      []string `protobuf:"bytes,2,rep,name=multiaddrs,proto3" json:"multiaddrs,omitempty"`
+	HeadHeight      uint64   `protobuf:"varint,3,opt,name=head_height,json=headHeight,proto3" json:"head_height"`
+	Seq             uint64   `protobuf:"varint,4,opt,name=seq,proto3" json:"seq"`
+	PublishedAtUnix int64    `protobuf:"varint,5,opt,name=published_at_unix,json=publishedAtUnix,proto3" json:"published_at_unix"`
+	ExpiresAtUnix   int64    `protobuf:"varint,6,opt,name=expires_at_unix,json=expiresAtUnix,proto3" json:"expires_at_unix"`
+	Signature       []byte   `protobuf:"bytes,7,opt,name=signature,proto3" json:"signature"`
+
+	SpendTxID           string `protobuf:"bytes,8,opt,name=spend_txid,json=spendTxid,proto3" json:"spend_txid"`
+	SequenceNumber      uint32 `protobuf:"varint,9,opt,name=sequence_number,json=sequenceNumber,proto3" json:"sequence_number"`
+	ServerAmount        uint64 `protobuf:"varint,10,opt,name=server_amount,json=serverAmount,proto3" json:"server_amount"`
+	ChargeAmountSatoshi uint64 `protobuf:"varint,11,opt,name=charge_amount_satoshi,json=chargeAmountSatoshi,proto3" json:"charge_amount_satoshi"`
+	Fee                 uint64 `protobuf:"varint,12,opt,name=fee,proto3" json:"fee"`
+	ClientSignature     []byte `protobuf:"bytes,13,opt,name=client_signature,json=clientSignature,proto3" json:"client_signature"`
+	ChargeReason        string `protobuf:"bytes,14,opt,name=charge_reason,json=chargeReason,proto3" json:"charge_reason,omitempty"`
+}
+
+type NodeReachabilityAnnouncePaidResp struct {
+	Success       bool   `protobuf:"varint,1,opt,name=success,proto3" json:"success"`
+	Status        string `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
+	Published     bool   `protobuf:"varint,3,opt,name=published,proto3" json:"published"`
+	ChargedAmount uint64 `protobuf:"varint,4,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
+	UpdatedTxID   string `protobuf:"bytes,5,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
+	Error         string `protobuf:"bytes,6,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+}
+
+// NodeReachabilityQueryPaidReq/Resp 是“地址目录查询 + 扣费”的组合接口。
+// 设计说明：
+// - 查询扣费看“是否执行了目录查询动作”，与命中与否无关；
+// - 返回只给“最新有效声明”，避免 gateway 用主观标准挑“最佳地址”。
+type NodeReachabilityQueryPaidReq struct {
+	ClientID string `protobuf:"bytes,1,opt,name=client_pubkey_hex,json=clientId,proto3" json:"client_pubkey_hex"`
+
+	TargetNodePubkeyHex string `protobuf:"bytes,2,opt,name=target_node_pubkey_hex,json=targetNodePubkeyHex,proto3" json:"target_node_pubkey_hex"`
+
+	SpendTxID           string `protobuf:"bytes,3,opt,name=spend_txid,json=spendTxid,proto3" json:"spend_txid"`
+	SequenceNumber      uint32 `protobuf:"varint,4,opt,name=sequence_number,json=sequenceNumber,proto3" json:"sequence_number"`
+	ServerAmount        uint64 `protobuf:"varint,5,opt,name=server_amount,json=serverAmount,proto3" json:"server_amount"`
+	ChargeAmountSatoshi uint64 `protobuf:"varint,6,opt,name=charge_amount_satoshi,json=chargeAmountSatoshi,proto3" json:"charge_amount_satoshi"`
+	Fee                 uint64 `protobuf:"varint,7,opt,name=fee,proto3" json:"fee"`
+	ClientSignature     []byte `protobuf:"bytes,8,opt,name=client_signature,json=clientSignature,proto3" json:"client_signature"`
+	ChargeReason        string `protobuf:"bytes,9,opt,name=charge_reason,json=chargeReason,proto3" json:"charge_reason,omitempty"`
+}
+
+type NodeReachabilityQueryPaidResp struct {
+	Success       bool   `protobuf:"varint,1,opt,name=success,proto3" json:"success"`
+	Status        string `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
+	Found         bool   `protobuf:"varint,3,opt,name=found,proto3" json:"found"`
+	ChargedAmount uint64 `protobuf:"varint,4,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
+	UpdatedTxID   string `protobuf:"bytes,5,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
+	Error         string `protobuf:"bytes,6,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+
+	TargetNodePubkeyHex string   `protobuf:"bytes,7,opt,name=target_node_pubkey_hex,json=targetNodePubkeyHex,proto3" json:"target_node_pubkey_hex,omitempty"`
+	Multiaddrs          []string `protobuf:"bytes,8,rep,name=multiaddrs,proto3" json:"multiaddrs,omitempty"`
+	HeadHeight          uint64   `protobuf:"varint,9,opt,name=head_height,json=headHeight,proto3" json:"head_height,omitempty"`
+	Seq                 uint64   `protobuf:"varint,10,opt,name=seq,proto3" json:"seq,omitempty"`
+	PublishedAtUnix     int64    `protobuf:"varint,11,opt,name=published_at_unix,json=publishedAtUnix,proto3" json:"published_at_unix,omitempty"`
+	ExpiresAtUnix       int64    `protobuf:"varint,12,opt,name=expires_at_unix,json=expiresAtUnix,proto3" json:"expires_at_unix,omitempty"`
+	Signature           []byte   `protobuf:"bytes,13,opt,name=signature,proto3" json:"signature,omitempty"`
 }

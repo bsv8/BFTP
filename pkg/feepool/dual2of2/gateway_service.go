@@ -27,6 +27,7 @@ type GatewayParams struct {
 	BillingCycleSeconds      uint32
 	SingleCycleFeeSatoshi    uint64
 	SinglePublishFeeSatoshi  uint64
+	SingleQueryFeeSatoshi    uint64
 	RenewNotifyBeforeSeconds uint32
 }
 
@@ -62,6 +63,7 @@ func (s *GatewayService) Info(clientID string) (InfoResp, error) {
 		BillingCycleSeconds:      s.Params.BillingCycleSeconds,
 		SingleCycleFeeSatoshi:    s.Params.SingleCycleFeeSatoshi,
 		SinglePublishFeeSatoshi:  s.Params.SinglePublishFeeSatoshi,
+		SingleQueryFeeSatoshi:    s.Params.SingleQueryFeeSatoshi,
 		RenewNotifyBeforeSeconds: s.Params.RenewNotifyBeforeSeconds,
 	}, nil
 }

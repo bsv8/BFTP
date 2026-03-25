@@ -5,6 +5,7 @@ import (
 	cryptorand "crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/crypto"
@@ -33,9 +34,16 @@ type SecurityConfig struct {
 type contextKey string
 
 const senderPubkeyHexContextKey contextKey = "p2prpc_sender_pubkey_hex"
+const messageIDContextKey contextKey = "p2prpc_message_id"
 
 func SenderPubkeyHexFromContext(ctx context.Context) (string, bool) {
 	v := ctx.Value(senderPubkeyHexContextKey)
+	s, ok := v.(string)
+	return s, ok && s != ""
+}
+
+func MessageIDFromContext(ctx context.Context) (string, bool) {
+	v := ctx.Value(messageIDContextKey)
 	s, ok := v.(string)
 	return s, ok && s != ""
 }
@@ -53,6 +61,18 @@ func verifyRemotePeerBytes(remote peer.ID, senderPub []byte) error {
 		return fmt.Errorf("remote peer mismatch")
 	}
 	return nil
+}
+
+func senderPubkeyHex(senderPub []byte) string {
+	pub, err := crypto.UnmarshalPublicKey(senderPub)
+	if err != nil {
+		return strings.ToLower(hex.EncodeToString(senderPub))
+	}
+	raw, err := pub.Raw()
+	if err != nil {
+		return strings.ToLower(hex.EncodeToString(senderPub))
+	}
+	return strings.ToLower(hex.EncodeToString(raw))
 }
 
 func randomMsgID() (string, error) {

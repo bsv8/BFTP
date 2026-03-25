@@ -183,12 +183,9 @@ func HandleProto[TReq any, TResp any](h host.Host, protoID coreprotocol.ID, cfg 
 		}
 
 		trace := cfg.Trace
-		senderPubHex := strings.ToLower(hex.EncodeToString(env.SenderPubkey))
-		if trace != nil {
-			ctx = context.WithValue(ctx, senderPubkeyHexContextKey, senderPubHex)
-		} else {
-			ctx = context.WithValue(ctx, senderPubkeyHexContextKey, senderPubHex)
-		}
+		senderPubHex := senderPubkeyHex(env.SenderPubkey)
+		ctx = context.WithValue(ctx, senderPubkeyHexContextKey, senderPubHex)
+		ctx = context.WithValue(ctx, messageIDContextKey, strings.TrimSpace(env.MsgID))
 		traceReq := normalizeProtoTracePayload(env.Payload)
 
 		payloadHash := appprotocol.EnvelopePayloadHashBytes(env.Payload)
