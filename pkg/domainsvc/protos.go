@@ -9,3 +9,13 @@ const (
 	ProtoRegisterSubmit  protocol.ID = "/bsv-transfer/domain/register_submit/1.0.0"
 	ProtoSetTargetPaid   protocol.ID = "/bsv-transfer/domain/set_target_paid/1.0.0"
 )
+
+const (
+	RouteDomainV1Pricing        = "domain.v1.pricing"
+	RouteDomainV1Resolve        = "domain.v1.resolve"
+	RouteDomainV1Query          = "domain.v1.query"
+	RouteDomainV1Lock           = "domain.v1.lock"
+	RouteDomainV1ListOwned      = "domain.v1.list_owned"
+	RouteDomainV1SetTarget      = "domain.v1.set_target"
+	RouteDomainV1RegisterSubmit = "domain.v1.register_submit"
+)
