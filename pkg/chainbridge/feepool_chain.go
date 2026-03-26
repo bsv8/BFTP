@@ -324,7 +324,7 @@ func getUTXOsByRouteClient(ctx context.Context, client *routeClient, address str
 		if client == nil || client.whatsonchain == nil {
 			return nil, fmt.Errorf("route %s does not support GetUTXOs", client.Route().Key())
 		}
-		return client.whatsonchain.GetAddressConfirmedUnspent(ctx, address)
+		return client.whatsonchain.GetAddressSpendableUnspent(ctx, address)
 	default:
 		return nil, fmt.Errorf("route %s does not support GetUTXOs", client.Route().Key())
 	}

@@ -152,8 +152,18 @@ func (s *GatewayService) Create(req CreateReq) (CreateResp, error) {
 		return CreateResp{}, fmt.Errorf("invalid initial amounts: server_amount %d + fee %d > pool_amount %d", req.ServerAmount, spendTxFee, poolAmount)
 	}
 
-	// 幂等：若 spend_txid 已存在，则直接返回（以数据库为准）。
+	// 幂等边界：
+	// - pending_base_tx / active：允许按同一 spend_txid 重入，便于客户端重试；
+	// - frozen / closed / close_submitted 等：必须立刻拒绝，否则客户端会误以为还能继续 base_tx。
 	if old, found, loadErr := LoadSessionBySpendTxID(s.DB, spendTxID); loadErr == nil && found {
+		if old.ClientID != clientBSVPubHex {
+			return CreateResp{}, fmt.Errorf("spend_txid already exists for another client")
+		}
+		switch old.LifecycleState {
+		case lifecyclePendingBaseTx, lifecycleActive:
+		default:
+			return CreateResp{}, fmt.Errorf("spend_txid already exists with lifecycle %s", normalizeLifecycleState(old.LifecycleState))
+		}
 		return CreateResp{
 			SpendTxID:     old.SpendTxID,
 			ServerSig:     append([]byte(nil), *serverSig...),
@@ -355,6 +365,9 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 	}
 	if req.ChargeAmountSatoshi != delta {
 		return payReject(row.LifecycleState, "fee_amount_mismatch", fmt.Sprintf("charge amount must equal server_amount delta: charge=%d delta=%d", req.ChargeAmountSatoshi, delta)), nil
+	}
+	if req.ServerAmount+row.SpendTxFeeSat > row.PoolAmountSat {
+		return payReject(row.LifecycleState, "pool_insufficient", fmt.Sprintf("pool cannot cover charge: pool=%d server=%d fee=%d", row.PoolAmountSat, req.ServerAmount, row.SpendTxFeeSat)), nil
 	}
 	if chargeReason == "listen_cycle_fee" {
 		if s.Params.SingleCycleFeeSatoshi == 0 {

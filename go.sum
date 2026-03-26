@@ -1,3 +1,5 @@
+github.com/adraffy/go-ens-normalize v0.1.1 h1:N//kZB/aSdBLAbUFX52iC5d7EHVgkxmLkLQ3nQnvkwE=
+github.com/adraffy/go-ens-normalize v0.1.1/go.mod h1:2wzkGeMLp+VO8lqbu4MYrFeQEVWSV6CGN1Vznrt+Gt0=
 github.com/bsv-blockchain/go-sdk v1.2.18 h1:JFl8TNM7lf80CslrXjlungDOyuvL9COzond9BOR81Us=
 github.com/bsv-blockchain/go-sdk v1.2.18/go.mod h1:QWYwia7QSPB8+sLWyVldsIg0wPPzvEmXL5wGAT0dgaA=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=

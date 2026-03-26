@@ -1,12 +1,15 @@
 package dual2of2
 
 import (
+	"encoding/hex"
 	"strings"
 	"testing"
 
 	"github.com/bsv-blockchain/go-sdk/chainhash"
 	"github.com/bsv-blockchain/go-sdk/script"
 	tx "github.com/bsv-blockchain/go-sdk/transaction"
+	ce "github.com/bsv8/MultisigPool/pkg/dual_endpoint"
+	kmlibs "github.com/bsv8/MultisigPool/pkg/libs"
 	_ "modernc.org/sqlite"
 )
 
@@ -118,6 +121,54 @@ func TestGatewayServicePayConfirmRejectListenFeeMismatch(t *testing.T) {
 	}
 }
 
+func TestGatewayServicePayConfirmRejectPoolInsufficient(t *testing.T) {
+	db := openTimelineTestDB(t)
+	row := GatewaySessionRow{
+		SpendTxID:                 "tx_pool_insufficient",
+		ClientID:                  "client_pool_insufficient",
+		ClientBSVCompressedPubHex: "02aa",
+		ServerBSVCompressedPubHex: "03bb",
+		InputAmountSat:            5,
+		PoolAmountSat:             5,
+		SpendTxFeeSat:             1,
+		Sequence:                  4,
+		ServerAmountSat:           4,
+		ClientAmountSat:           0,
+		BaseTxID:                  "base_pool_insufficient",
+		FinalTxID:                 "",
+		BaseTxHex:                 "00",
+		CurrentTxHex:              "01000000000064000000",
+		LifecycleState:            "active",
+	}
+	if err := InsertSession(db, row); err != nil {
+		t.Fatalf("insert session failed: %v", err)
+	}
+
+	svc := &GatewayService{
+		DB: db,
+		Chain: stubChainForValidation{
+			tip: 10,
+		},
+	}
+	resp, err := svc.PayConfirm(PayConfirmReq{
+		SpendTxID:           row.SpendTxID,
+		SequenceNumber:      5,
+		ServerAmount:        5,
+		Fee:                 row.SpendTxFeeSat,
+		ChargeReason:        "domain_query_fee",
+		ChargeAmountSatoshi: 1,
+	})
+	if err != nil {
+		t.Fatalf("pay confirm returned unexpected error: %v", err)
+	}
+	if resp.Success {
+		t.Fatalf("pay confirm should be rejected")
+	}
+	if !strings.Contains(strings.ToLower(resp.Error), "pool cannot cover charge") {
+		t.Fatalf("unexpected reject error: %s", resp.Error)
+	}
+}
+
 func TestLoadPreferredSessionByClientIDPrefersActive(t *testing.T) {
 	db := openTimelineTestDB(t)
 	if err := InsertSession(db, GatewaySessionRow{
@@ -174,4 +225,115 @@ func TestLoadPreferredSessionByClientIDPrefersActive(t *testing.T) {
 	if row.SpendTxID != "tx_active" {
 		t.Fatalf("preferred session mismatch: got=%s want=tx_active", row.SpendTxID)
 	}
+}
+
+func TestGatewayServiceCreateRejectsDuplicateFrozenSession(t *testing.T) {
+	db := openTimelineTestDB(t)
+	client := mustTestActor(t, "client", "7777777777777777777777777777777777777777777777777777777777777777")
+	server := mustTestActor(t, "server", "8888888888888888888888888888888888888888888888888888888888888888")
+	tip := uint32(100)
+	lockBlocks := uint32(12)
+	req, row := mustBuildCreateReqForGatewayTest(t, client, server, tip, lockBlocks)
+	row.LifecycleState = lifecycleFrozen
+	if err := InsertSession(db, row); err != nil {
+		t.Fatalf("insert session failed: %v", err)
+	}
+
+	svc := &GatewayService{
+		DB:            db,
+		Chain:         stubChainForValidation{tip: tip},
+		ServerPrivHex: strings.Repeat("88", 32),
+		Params: GatewayParams{
+			LockBlocks: lockBlocks,
+		},
+	}
+	if _, err := svc.Create(req); err == nil {
+		t.Fatalf("create should reject duplicate frozen session")
+	} else if !strings.Contains(strings.ToLower(err.Error()), "lifecycle frozen") {
+		t.Fatalf("unexpected create error: %v", err)
+	}
+}
+
+func TestGatewayServiceCreateAllowsDuplicatePendingBaseTx(t *testing.T) {
+	db := openTimelineTestDB(t)
+	client := mustTestActor(t, "client", "9999999999999999999999999999999999999999999999999999999999999999")
+	server := mustTestActor(t, "server", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	tip := uint32(100)
+	lockBlocks := uint32(12)
+	req, row := mustBuildCreateReqForGatewayTest(t, client, server, tip, lockBlocks)
+	row.LifecycleState = lifecyclePendingBaseTx
+	if err := InsertSession(db, row); err != nil {
+		t.Fatalf("insert session failed: %v", err)
+	}
+
+	svc := &GatewayService{
+		DB:            db,
+		Chain:         stubChainForValidation{tip: tip},
+		ServerPrivHex: strings.Repeat("aa", 32),
+		Params: GatewayParams{
+			LockBlocks: lockBlocks,
+		},
+	}
+	resp, err := svc.Create(req)
+	if err != nil {
+		t.Fatalf("create returned unexpected error: %v", err)
+	}
+	if resp.SpendTxID != row.SpendTxID {
+		t.Fatalf("spend_txid mismatch: got=%s want=%s", resp.SpendTxID, row.SpendTxID)
+	}
+}
+
+func mustBuildCreateReqForGatewayTest(t *testing.T, client *Actor, server *Actor, tip uint32, lockBlocks uint32) (CreateReq, GatewaySessionRow) {
+	t.Helper()
+	utxos := []kmlibs.UTXO{{
+		TxID:  strings.Repeat("11", 32),
+		Vout:  0,
+		Value: 2000,
+	}}
+	baseResp, err := ce.BuildDualFeePoolBaseTx(&utxos, 1000, client.PrivKey, server.PubKey, false, 0.5)
+	if err != nil {
+		t.Fatalf("build base tx failed: %v", err)
+	}
+	spendTx, clientSig, clientAmount, err := ce.BuildDualFeePoolSpendTX(baseResp.Tx, 1000, 100, tip+lockBlocks, client.PrivKey, server.PubKey, false, 0.5)
+	if err != nil {
+		t.Fatalf("build spend tx failed: %v", err)
+	}
+	spendTxBytes, err := hex.DecodeString(spendTx.Hex())
+	if err != nil {
+		t.Fatalf("decode spend tx failed: %v", err)
+	}
+	serverSig, err := ce.SpendTXServerSign(spendTx, baseResp.Amount, server.PrivKey, client.PubKey)
+	if err != nil {
+		t.Fatalf("server sign spend tx failed: %v", err)
+	}
+	clientSigCopy := append([]byte(nil), (*clientSig)...)
+	mergedTx, err := ce.MergeDualPoolSigForSpendTx(spendTx.Hex(), serverSig, &clientSigCopy)
+	if err != nil {
+		t.Fatalf("merge spend tx signatures failed: %v", err)
+	}
+	spendTxID := spendTx.TxID().String()
+	spendTxFee := CalcFeeWithInputAmount(spendTx, baseResp.Amount)
+	return CreateReq{
+			ClientID:       client.PubHex,
+			SpendTx:        spendTxBytes,
+			InputAmount:    baseResp.Amount,
+			SequenceNumber: 1,
+			ServerAmount:   100,
+			ClientSig:      append([]byte(nil), (*clientSig)...),
+		}, GatewaySessionRow{
+			SpendTxID:                 spendTxID,
+			ClientID:                  client.PubHex,
+			ClientBSVCompressedPubHex: client.PubHex,
+			ServerBSVCompressedPubHex: server.PubHex,
+			InputAmountSat:            baseResp.Amount,
+			PoolAmountSat:             baseResp.Amount,
+			SpendTxFeeSat:             spendTxFee,
+			Sequence:                  1,
+			ServerAmountSat:           100,
+			ClientAmountSat:           clientAmount,
+			BaseTxID:                  "",
+			FinalTxID:                 "",
+			BaseTxHex:                 "",
+			CurrentTxHex:              mergedTx.Hex(),
+		}
 }
