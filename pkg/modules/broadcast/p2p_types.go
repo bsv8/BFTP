@@ -16,7 +16,7 @@ type DemandPublishPaidReq struct {
 	ChargeAmountSatoshi uint64 `protobuf:"varint,9,opt,name=charge_amount_satoshi,json=chargeAmountSatoshi,proto3" json:"charge_amount_satoshi"`
 	Fee                 uint64 `protobuf:"varint,10,opt,name=fee,proto3" json:"fee"`
 	ClientSignature     []byte `protobuf:"bytes,11,opt,name=client_signature,json=clientSignature,proto3" json:"signature"`
-	ChargeReason        string `protobuf:"bytes,12,opt,name=charge_reason,json=chargeReason,proto3" json:"charge_reason,omitempty"` // 默认 demand_publish_fee
+	ChargeReason        string `protobuf:"bytes,12,opt,name=charge_reason,json=chargeReason,proto3" json:"charge_reason,omitempty"` // 默认 QuoteServiceTypeDemandPublish
 	ProofIntent         []byte `protobuf:"bytes,13,opt,name=proof_intent,json=proofIntent,proto3" json:"proof_intent,omitempty"`
 	SignedProofCommit   []byte `protobuf:"bytes,14,opt,name=signed_proof_commit,json=signedProofCommit,proto3" json:"signed_proof_commit,omitempty"`
 	ServiceQuote        []byte `protobuf:"bytes,16,opt,name=service_quote,json=serviceQuote,proto3" json:"service_quote,omitempty"`
@@ -101,7 +101,7 @@ type LiveDemandPublishPaidReq struct {
 	ChargeAmountSatoshi uint64 `protobuf:"varint,9,opt,name=charge_amount_satoshi,json=chargeAmountSatoshi,proto3" json:"charge_amount_satoshi"`
 	Fee                 uint64 `protobuf:"varint,10,opt,name=fee,proto3" json:"fee"`
 	ClientSignature     []byte `protobuf:"bytes,11,opt,name=client_signature,json=clientSignature,proto3" json:"signature"`
-	ChargeReason        string `protobuf:"bytes,12,opt,name=charge_reason,json=chargeReason,proto3" json:"charge_reason,omitempty"` // 默认 live_demand_publish_fee
+	ChargeReason        string `protobuf:"bytes,12,opt,name=charge_reason,json=chargeReason,proto3" json:"charge_reason,omitempty"` // 默认 QuoteServiceTypeLiveDemandPublish
 	ProofIntent         []byte `protobuf:"bytes,13,opt,name=proof_intent,json=proofIntent,proto3" json:"proof_intent,omitempty"`
 	SignedProofCommit   []byte `protobuf:"bytes,14,opt,name=signed_proof_commit,json=signedProofCommit,proto3" json:"signed_proof_commit,omitempty"`
 	ServiceQuote        []byte `protobuf:"bytes,16,opt,name=service_quote,json=serviceQuote,proto3" json:"service_quote,omitempty"`
