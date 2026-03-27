@@ -1,4 +1,4 @@
-package dual2of2
+package poolcore
 
 import (
 	"database/sql"

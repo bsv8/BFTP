@@ -1,4 +1,4 @@
-package p2prpc
+package pproto
 
 import (
 	"bufio"

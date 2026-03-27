@@ -1,4 +1,4 @@
-package dual2of2
+package poolcore
 
 import (
 	"encoding/hex"
@@ -104,8 +104,8 @@ func TestGatewayServicePayConfirmRejectListenQuoteAmountMismatch(t *testing.T) {
 		},
 	}
 	nowUnix := time.Now().Unix()
-	signedQuote, err := proof.SignServiceQuote(proof.ServiceQuote{
-		OfferHash:                  proof.HashPayloadBytes([]byte("offer")),
+	signedQuote, err := payflow.SignServiceQuote(payflow.ServiceQuote{
+		OfferHash:                  payflow.HashPayloadBytes([]byte("offer")),
 		Domain:                     "bitcast-gateway",
 		ServiceType:                QuoteServiceTypeListenCycle,
 		ChargeReason:               QuoteServiceTypeListenCycle,
@@ -113,7 +113,7 @@ func TestGatewayServicePayConfirmRejectListenQuoteAmountMismatch(t *testing.T) {
 		GatewayPubkeyHex:           row.ServerBSVCompressedPubHex,
 		ClientPubkeyHex:            row.ClientBSVCompressedPubHex,
 		SpendTxID:                  row.SpendTxID,
-		ServiceParamsHash:          proof.HashPayloadBytes([]byte("params")),
+		ServiceParamsHash:          payflow.HashPayloadBytes([]byte("params")),
 		SequenceNumber:             2,
 		ServerAmountBefore:         row.ServerAmountSat,
 		ChargeAmountSatoshi:        50,
@@ -126,7 +126,7 @@ func TestGatewayServicePayConfirmRejectListenQuoteAmountMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sign service quote failed: %v", err)
 	}
-	rawQuote, err := proof.MarshalServiceQuote(signedQuote)
+	rawQuote, err := payflow.MarshalServiceQuote(signedQuote)
 	if err != nil {
 		t.Fatalf("marshal service quote failed: %v", err)
 	}

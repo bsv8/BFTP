@@ -108,7 +108,7 @@ func NewPortFeePoolChain(baseURL string, routeCfg RouteConfig) (*FeePoolChain, e
 	return NewEmbeddedFeePoolChain(routeCfg)
 }
 
-func (c *FeePoolChain) GetUTXOs(address string) ([]dual2of2.UTXO, error) {
+func (c *FeePoolChain) GetUTXOs(address string) ([]poolcore.UTXO, error) {
 	if c == nil || c.manager == nil {
 		return nil, fmt.Errorf("fee pool chain is nil")
 	}
@@ -121,9 +121,9 @@ func (c *FeePoolChain) GetUTXOs(address string) ([]dual2of2.UTXO, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := make([]dual2of2.UTXO, 0, len(items))
+	out := make([]poolcore.UTXO, 0, len(items))
 	for _, item := range items {
-		out = append(out, dual2of2.UTXO{TxID: item.TxID, Vout: item.Vout, Value: item.Value})
+		out = append(out, poolcore.UTXO{TxID: item.TxID, Vout: item.Vout, Value: item.Value})
 	}
 	return out, nil
 }

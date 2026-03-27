@@ -1,4 +1,4 @@
-package dual2of2
+package poolcore
 
 import (
 	"encoding/hex"
@@ -11,7 +11,7 @@ import (
 // Libp2pMarshalPubHexToSecpCompressedHex 兼容两种输入并统一输出 secp256k1 压缩公钥(hex，33字节)：
 // - libp2p MarshalPublicKey(hex)
 // - secp256k1 压缩公钥(hex)
-// 这是把 p2prpc 的 sender_pubkey 语义，桥接到 KeymasterMultisigPool 的 BSV 公钥语义上。
+// 这是把 pproto 的 sender_pubkey 语义，桥接到 KeymasterMultisigPool 的 BSV 公钥语义上。
 func Libp2pMarshalPubHexToSecpCompressedHex(marshalPubHex string) (string, error) {
 	marshalPubHex = strings.TrimSpace(marshalPubHex)
 	if marshalPubHex == "" {

@@ -1,4 +1,4 @@
-package dual2of2
+package poolcore
 
 import (
 	"context"
@@ -378,7 +378,7 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 	if chargeReason == "" {
 		chargeReason = "unspecified"
 	}
-	var boundQuote proof.ServiceQuote
+	var boundQuote payflow.ServiceQuote
 	if requiresBoundServiceQuote(chargeReason) {
 		if len(req.ServiceQuote) == 0 {
 			return payReject(row.LifecycleState, "service_quote_required", "service quote required"), nil
@@ -705,8 +705,8 @@ func (s *GatewayService) State(req StateReq) (StateResp, error) {
 	}
 	currentTx, _ := hex.DecodeString(strings.TrimSpace(row.CurrentTxHex))
 	var proofPayload []byte
-	if state, ok, pErr := proof.ExtractProofStateFromTxHex(row.CurrentTxHex); pErr == nil && ok {
-		if raw, mErr := proof.MarshalProofState(state); mErr == nil {
+	if state, ok, pErr := payflow.ExtractProofStateFromTxHex(row.CurrentTxHex); pErr == nil && ok {
+		if raw, mErr := payflow.MarshalProofState(state); mErr == nil {
 			proofPayload = raw
 		}
 	}

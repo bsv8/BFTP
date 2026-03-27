@@ -10,7 +10,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 )
 
-// SignedEnvelopePB 是 p2prpc 的二进制签名信封（protobuf）。
+// SignedEnvelopePB 是 pproto 的二进制签名信封（protobuf）。
 // 设计说明：
 // - 外层信封统一 protobuf 编码，避免 JSON/hex 的冗余开销；
 // - sender_pubkey/signature 直接使用 bytes，业务层不再承担 hex 编解码成本。

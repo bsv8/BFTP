@@ -1,4 +1,4 @@
-package nodesvc
+package ncall
 
 import oldproto "github.com/golang/protobuf/proto"
 
@@ -21,10 +21,6 @@ func (*ResolveReq) ProtoMessage()    {}
 func (m *ResolveResp) Reset()         { *m = ResolveResp{} }
 func (m *ResolveResp) String() string { return oldproto.CompactTextString(m) }
 func (*ResolveResp) ProtoMessage()    {}
-
-func (m *PricingItem) Reset()         { *m = PricingItem{} }
-func (m *PricingItem) String() string { return oldproto.CompactTextString(m) }
-func (*PricingItem) ProtoMessage()    {}
 
 func (m *FeePool2of2Payment) Reset()         { *m = FeePool2of2Payment{} }
 func (m *FeePool2of2Payment) String() string { return oldproto.CompactTextString(m) }

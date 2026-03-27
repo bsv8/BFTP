@@ -1,4 +1,4 @@
-package dual2of2
+package poolcore
 
 // ChainClient 是费用池协议需要的最小链后端能力：
 // - client 侧：查询 UTXO / tip height

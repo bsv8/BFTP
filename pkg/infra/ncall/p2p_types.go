@@ -1,4 +1,4 @@
-package nodesvc
+package ncall
 
 const (
 	ContentTypeProto = "application/x-protobuf"
@@ -58,11 +58,6 @@ type ResolveResp struct {
 	Body        []byte `protobuf:"bytes,5,opt,name=body,proto3" json:"body,omitempty"`
 }
 
-type PricingItem struct {
-	Key   string `protobuf:"bytes,1,opt,name=key,proto3" json:"key"`
-	Value uint64 `protobuf:"varint,2,opt,name=value,proto3" json:"value"`
-}
-
 type FeePool2of2Payment struct {
 	SpendTxID           string `protobuf:"bytes,1,opt,name=spend_txid,json=spendTxid,proto3" json:"spend_txid"`
 	SequenceNumber      uint32 `protobuf:"varint,2,opt,name=sequence_number,json=sequenceNumber,proto3" json:"sequence_number"`
@@ -87,10 +82,10 @@ type FeePool2of2Receipt struct {
 }
 
 type CapabilityItem struct {
-	ID             string         `protobuf:"bytes,1,opt,name=id,proto3" json:"id"`
-	Version        uint32         `protobuf:"varint,2,opt,name=version,proto3" json:"version"`
-	Pricing        []*PricingItem `protobuf:"bytes,3,rep,name=pricing,proto3" json:"pricing,omitempty"`
-	PaymentSchemes []string       `protobuf:"bytes,4,rep,name=payment_schemes,json=paymentSchemes,proto3" json:"payment_schemes,omitempty"`
+	// 公开能力快照只负责声明“节点对外提供什么能力”。
+	// 价格和支付细节统一交给 offer -> quote -> pay -> receipt 流程。
+	ID      string `protobuf:"bytes,1,opt,name=id,proto3" json:"id"`
+	Version uint32 `protobuf:"varint,2,opt,name=version,proto3" json:"version"`
 }
 
 type CapabilitiesShowBody struct {

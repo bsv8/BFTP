@@ -49,9 +49,9 @@ type PublishDemandBatchReq struct {
 }
 
 type PublishDemandBatchResp struct {
-	Items               []PublishDemandBatchItemResp `json:"items,omitempty"`
-	Status              string                       `json:"status"`
-	ChargedAmountSatoshi uint64                      `json:"charged_amount_satoshi,omitempty"`
+	Items                []PublishDemandBatchItemResp `json:"items,omitempty"`
+	Status               string                       `json:"status"`
+	ChargedAmountSatoshi uint64                       `json:"charged_amount_satoshi,omitempty"`
 }
 
 type PublishLiveDemandReq struct {

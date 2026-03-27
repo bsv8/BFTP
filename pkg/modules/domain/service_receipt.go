@@ -1,4 +1,4 @@
-package domainsvc
+package domainmodule
 
 import "encoding/json"
 

@@ -1,4 +1,4 @@
-package p2prpc
+package pproto
 
 import (
 	"encoding/json"
@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// TraceSink 用于记录 p2prpc 层的“收发报文”审计日志。
+// TraceSink 用于记录 pproto 层的“收发报文”审计日志。
 // 注意：这是可选能力；正常程序运行默认不启用（Trace=nil 时不记录）。
 type TraceSink interface {
 	Handle(ev TraceEvent)

@@ -1,4 +1,4 @@
-package domainsvc
+package domainmodule
 
 import oldproto "github.com/golang/protobuf/proto"
 

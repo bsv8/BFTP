@@ -1,4 +1,4 @@
-package domainsvc
+package domainmodule
 
 type NameRouteReq struct {
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name"`

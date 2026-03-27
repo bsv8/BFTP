@@ -1,4 +1,4 @@
-package proof
+package payflow
 
 import (
 	"crypto/sha256"

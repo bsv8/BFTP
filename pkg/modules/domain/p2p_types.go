@@ -1,4 +1,4 @@
-package domainsvc
+package domainmodule
 
 type ResolveNamePaidReq struct {
 	ClientID string `protobuf:"bytes,1,opt,name=client_pubkey_hex,json=clientId,proto3" json:"client_pubkey_hex"`

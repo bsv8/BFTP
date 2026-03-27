@@ -1,4 +1,4 @@
-package dual2of2
+package poolcore
 
 import (
 	"fmt"
@@ -16,7 +16,7 @@ func BuildSignedServiceReceipt(serverPrivHex string, isMainnet bool, clientPubke
 	if strings.TrimSpace(serverPrivHex) == "" {
 		return nil, fmt.Errorf("server private key required")
 	}
-	state, err := proof.UnmarshalProofState(payOut.ProofStatePayload)
+	state, err := payflow.UnmarshalProofState(payOut.ProofStatePayload)
 	if err != nil {
 		return nil, fmt.Errorf("decode proof state payload: %w", err)
 	}
@@ -24,7 +24,7 @@ func BuildSignedServiceReceipt(serverPrivHex string, isMainnet bool, clientPubke
 	if err != nil {
 		return nil, err
 	}
-	receipt, err := proof.SignServiceReceipt(proof.ServiceReceipt{
+	receipt, err := payflow.SignServiceReceipt(payflow.ServiceReceipt{
 		ServiceType:        strings.TrimSpace(serviceType),
 		GatewayPubkeyHex:   strings.ToLower(strings.TrimSpace(actor.PubHex)),
 		ClientPubkeyHex:    NormalizeClientIDLoose(clientPubkeyHex),
@@ -32,11 +32,11 @@ func BuildSignedServiceReceipt(serverPrivHex string, isMainnet bool, clientPubke
 		SequenceNumber:     state.SequenceNumber,
 		AcceptedChargeHash: strings.ToLower(strings.TrimSpace(state.LastAcceptedChargeHash)),
 		ResultCode:         strings.TrimSpace(resultCode),
-		ResultPayloadHash:  proof.HashPayloadBytes(payloadBytes),
+		ResultPayloadHash:  payflow.HashPayloadBytes(payloadBytes),
 		CompletedAtUnix:    time.Now().Unix(),
 	}, actor.PrivKey)
 	if err != nil {
 		return nil, err
 	}
-	return proof.MarshalServiceReceipt(receipt)
+	return payflow.MarshalServiceReceipt(receipt)
 }

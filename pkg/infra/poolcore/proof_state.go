@@ -1,4 +1,4 @@
-package dual2of2
+package poolcore
 
 import (
 	"encoding/hex"
@@ -17,7 +17,7 @@ func buildPayConfirmProofPayload(row GatewaySessionRow, req PayConfirmReq, updat
 	if len(req.ProofIntent) == 0 || len(req.SignedProofCommit) == 0 {
 		return nil, nil, fmt.Errorf("proof intent and signed_proof_commit must be provided together")
 	}
-	intent, err := proof.UnmarshalIntent(req.ProofIntent)
+	intent, err := payflow.UnmarshalIntent(req.ProofIntent)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -32,29 +32,29 @@ func buildPayConfirmProofPayload(row GatewaySessionRow, req PayConfirmReq, updat
 	if err != nil {
 		return nil, nil, fmt.Errorf("invalid stored client pubkey: %w", err)
 	}
-	commit, err := proof.VerifySignedClientCommit(req.SignedProofCommit, clientPub)
+	commit, err := payflow.VerifySignedClientCommit(req.SignedProofCommit, clientPub)
 	if err != nil {
 		return nil, nil, err
 	}
 	if err := validateProofCommitAgainstPay(row, req, updatedTxHex, intent, commit); err != nil {
 		return nil, nil, err
 	}
-	prevState, found, err := proof.ExtractProofStateFromTxHex(row.CurrentTxHex)
+	prevState, found, err := payflow.ExtractProofStateFromTxHex(row.CurrentTxHex)
 	if err != nil {
 		return nil, nil, err
 	}
 	if found && !strings.EqualFold(prevState.SpendTxID, row.SpendTxID) {
 		return nil, nil, fmt.Errorf("previous proof state spend_txid mismatch")
 	}
-	intentHash, err := proof.HashIntent(intent)
+	intentHash, err := payflow.HashIntent(intent)
 	if err != nil {
 		return nil, nil, err
 	}
-	commitHash, err := proof.HashClientCommit(commit)
+	commitHash, err := payflow.HashClientCommit(commit)
 	if err != nil {
 		return nil, nil, err
 	}
-	accepted := proof.AcceptedCharge{
+	accepted := payflow.AcceptedCharge{
 		IntentHash:          intentHash,
 		ClientCommitHash:    commitHash,
 		SpendTxID:           row.SpendTxID,
@@ -65,55 +65,55 @@ func buildPayConfirmProofPayload(row GatewaySessionRow, req PayConfirmReq, updat
 		ServiceDeadlineUnix: intent.ServiceDeadlineUnix,
 		PrevAcceptedHash:    prevState.AcceptedTipHash,
 	}
-	state, err := proof.BuildNextProofState(prevState, accepted)
+	state, err := payflow.BuildNextProofState(prevState, accepted)
 	if err != nil {
 		return nil, nil, err
 	}
-	payload, err := proof.MarshalProofState(state)
+	payload, err := payflow.MarshalProofState(state)
 	if err != nil {
 		return nil, nil, err
 	}
-	acceptedRaw, err := proof.MarshalAcceptedCharge(accepted)
+	acceptedRaw, err := payflow.MarshalAcceptedCharge(accepted)
 	if err != nil {
 		return nil, nil, err
 	}
 	return payload, acceptedRaw, nil
 }
 
-func validateServiceQuoteAgainstPay(row GatewaySessionRow, req PayConfirmReq) (proof.ServiceQuote, string, error) {
+func validateServiceQuoteAgainstPay(row GatewaySessionRow, req PayConfirmReq) (payflow.ServiceQuote, string, error) {
 	if len(req.ServiceQuote) == 0 {
-		return proof.ServiceQuote{}, "", nil
+		return payflow.ServiceQuote{}, "", nil
 	}
 	gatewayPub, err := ec.PublicKeyFromString(strings.TrimSpace(row.ServerBSVCompressedPubHex))
 	if err != nil {
-		return proof.ServiceQuote{}, "", fmt.Errorf("invalid stored gateway pubkey: %w", err)
+		return payflow.ServiceQuote{}, "", fmt.Errorf("invalid stored gateway pubkey: %w", err)
 	}
 	quote, quoteHash, err := ParseAndVerifyServiceQuote(req.ServiceQuote, gatewayPub)
 	if err != nil {
-		return proof.ServiceQuote{}, "", err
+		return payflow.ServiceQuote{}, "", err
 	}
 	if err := ValidateServiceQuoteBinding(quote, row.ServerBSVCompressedPubHex, row.ClientBSVCompressedPubHex, row.SpendTxID, "", nil, time.Now().Unix()); err != nil {
-		return proof.ServiceQuote{}, "", err
+		return payflow.ServiceQuote{}, "", err
 	}
 	if !strings.EqualFold(strings.TrimSpace(quote.ChargeReason), strings.TrimSpace(req.ChargeReason)) {
-		return proof.ServiceQuote{}, "", fmt.Errorf("service quote charge_reason mismatch")
+		return payflow.ServiceQuote{}, "", fmt.Errorf("service quote charge_reason mismatch")
 	}
 	if quote.SequenceNumber != req.SequenceNumber {
-		return proof.ServiceQuote{}, "", fmt.Errorf("service quote sequence_number mismatch")
+		return payflow.ServiceQuote{}, "", fmt.Errorf("service quote sequence_number mismatch")
 	}
 	if quote.ServerAmountBefore != row.ServerAmountSat {
-		return proof.ServiceQuote{}, "", fmt.Errorf("service quote server_amount_before mismatch")
+		return payflow.ServiceQuote{}, "", fmt.Errorf("service quote server_amount_before mismatch")
 	}
 	if quote.ChargeAmountSatoshi != req.ChargeAmountSatoshi {
-		return proof.ServiceQuote{}, "", fmt.Errorf("service quote charge_amount mismatch")
+		return payflow.ServiceQuote{}, "", fmt.Errorf("service quote charge_amount mismatch")
 	}
 	if quote.ServerAmountAfter != req.ServerAmount {
-		return proof.ServiceQuote{}, "", fmt.Errorf("service quote server_amount_after mismatch")
+		return payflow.ServiceQuote{}, "", fmt.Errorf("service quote server_amount_after mismatch")
 	}
 	return quote, quoteHash, nil
 }
 
-func validateProofIntentAgainstPay(row GatewaySessionRow, req PayConfirmReq, intent proof.ChargeIntent, quoteHash string) error {
+func validateProofIntentAgainstPay(row GatewaySessionRow, req PayConfirmReq, intent payflow.ChargeIntent, quoteHash string) error {
 	if !strings.EqualFold(strings.TrimSpace(intent.SpendTxID), row.SpendTxID) {
 		return fmt.Errorf("proof intent spend_txid mismatch")
 	}
@@ -144,8 +144,8 @@ func validateProofIntentAgainstPay(row GatewaySessionRow, req PayConfirmReq, int
 	return nil
 }
 
-func validateProofCommitAgainstPay(row GatewaySessionRow, req PayConfirmReq, updatedTxHex string, intent proof.ChargeIntent, commit proof.ClientCommit) error {
-	intentHash, err := proof.HashIntent(intent)
+func validateProofCommitAgainstPay(row GatewaySessionRow, req PayConfirmReq, updatedTxHex string, intent payflow.ChargeIntent, commit payflow.ClientCommit) error {
+	intentHash, err := payflow.HashIntent(intent)
 	if err != nil {
 		return err
 	}
@@ -170,7 +170,7 @@ func validateProofCommitAgainstPay(row GatewaySessionRow, req PayConfirmReq, upd
 	if commit.ServerAmountAfter != req.ServerAmount {
 		return fmt.Errorf("proof commit server_amount_after mismatch")
 	}
-	templateHash, err := proof.UpdateTemplateHashFromTxHex(updatedTxHex)
+	templateHash, err := payflow.UpdateTemplateHashFromTxHex(updatedTxHex)
 	if err != nil {
 		return err
 	}

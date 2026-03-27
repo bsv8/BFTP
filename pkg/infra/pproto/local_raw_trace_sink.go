@@ -1,4 +1,4 @@
-package p2prpc
+package pproto
 
 import (
 	"crypto/sha256"
@@ -11,7 +11,7 @@ import (
 	"sync"
 )
 
-// LocalRawTraceSink 把 p2prpc 收发事件落盘为“索引 + blob”两层结构。
+// LocalRawTraceSink 把 pproto 收发事件落盘为“索引 + blob”两层结构。
 // 设计说明：
 // - events.jsonl 只保存索引与解析摘要，便于 grep / diff；
 // - 原始 envelope / payload 以 sha256 命名，避免大字段把 JSONL 撑爆；
