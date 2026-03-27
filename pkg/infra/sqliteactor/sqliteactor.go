@@ -49,6 +49,13 @@ type actorResponse struct {
 	err   error
 }
 
+// Open 打开 sqlite 的单 owner actor 入口。
+// 设计规则：
+// - 一个库文件 = 一个 owner = 一个连接 = 一个串行执行入口；
+// - `*sql.DB` 虽然并发安全，但它默认是连接池，这对 sqlite 往往不是正确模型；
+// - 这里强制 `SetMaxOpenConns(1)` / `SetMaxIdleConns(1)`，把物理连接压成 1 条；
+// - 保留 WAL，但 WAL 只改善读写关系，不代表可以随便并发写；
+// - `busy_timeout` / retry 不作为主方案，主方案是结构上避免竞争。
 func Open(path string) (*Opened, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -81,6 +88,10 @@ func New(db *sql.DB) (*Actor, error) {
 	if db == nil {
 		return nil, fmt.Errorf("sqlite db is nil")
 	}
+	// 设计说明：
+	// - actor 只允许一个 owner goroutine 真正触碰 sqlite；
+	// - 所有访问都通过请求队列进来，避免多个 goroutine 直接并发打 sqlite；
+	// - 这样可以把“偶发锁竞争”变成明确的串行时序。
 	a := &Actor{
 		db:       db,
 		requests: make(chan actorRequest),
@@ -127,6 +138,10 @@ func TxValue[T any](ctx context.Context, a *Actor, fn func(*sql.Tx) (T, error)) 
 		return zero, fmt.Errorf("sqlite actor tx func is nil")
 	}
 	result, err := a.call(ctx, func(db *sql.DB) (any, error) {
+		// 设计规则：
+		// - 事务闭包必须在 actor 内部完整执行完；
+		// - 不允许在事务中回头再走别的库级 `db.*`，否则单连接模式下会自锁；
+		// - 不允许把 `*sql.Tx`、`*sql.Rows`、`*sql.Stmt` 带出闭包。
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
 			return nil, err
@@ -207,6 +222,9 @@ func (a *Actor) call(ctx context.Context, fn func(*sql.DB) (any, error)) (any, e
 		run: fn,
 		out: make(chan actorResponse, 1),
 	}
+	// 设计说明：
+	// - actor 是正式串行入口，不允许业务代码绕过它并发触碰 sqlite；
+	// - 真正的稳定性来自“没有竞争”，不是“竞争后多等一会儿再试”。
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
