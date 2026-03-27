@@ -133,6 +133,18 @@ func TestAssembleRejectsDuplicateHTTPPath(t *testing.T) {
 	}
 }
 
+func TestAssembleRejectsDuplicateHTTPPathInsideSingleSpec(t *testing.T) {
+	_, err := Assemble(
+		ModuleSpec{InternalAbility: "bftp.http@1", HTTPPaths: []string{"/api/v1/info", "/api/v1/info"}},
+	)
+	if err == nil {
+		t.Fatal("expected duplicate http path error")
+	}
+	if !strings.Contains(err.Error(), "http path duplicate") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestChainNodeCallHandlesCapabilitiesAndSegments(t *testing.T) {
 	handler := ChainNodeCall(
 		func() ncall.CapabilitiesShowBody {

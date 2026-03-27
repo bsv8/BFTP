@@ -5,11 +5,57 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/bsv8/BFTP/pkg/infra/caps"
 )
 
 type Route struct {
 	Path    string
 	Handler http.HandlerFunc
+}
+
+type RouteDecl struct {
+	InternalAbility string
+	Routes          []Route
+}
+
+func Paths(routes ...Route) []string {
+	out := make([]string, 0, len(routes))
+	for _, route := range routes {
+		out = append(out, route.Path)
+	}
+	return out
+}
+
+func Flatten(routeSets ...[]Route) []Route {
+	total := 0
+	for _, set := range routeSets {
+		total += len(set)
+	}
+	out := make([]Route, 0, total)
+	for _, set := range routeSets {
+		out = append(out, set...)
+	}
+	return out
+}
+
+func FlattenDecls(decls ...RouteDecl) []Route {
+	sets := make([][]Route, 0, len(decls))
+	for _, decl := range decls {
+		sets = append(sets, decl.Routes)
+	}
+	return Flatten(sets...)
+}
+
+func ModuleSpecs(decls ...RouteDecl) []caps.ModuleSpec {
+	out := make([]caps.ModuleSpec, 0, len(decls))
+	for _, decl := range decls {
+		out = append(out, caps.ModuleSpec{
+			InternalAbility: decl.InternalAbility,
+			HTTPPaths:       Paths(decl.Routes...),
+		})
+	}
+	return out
 }
 
 func NewServeMux(routes ...Route) *http.ServeMux {

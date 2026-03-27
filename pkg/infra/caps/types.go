@@ -174,11 +174,16 @@ func normalizeStringList(owner string, kind string, items []string) ([]string, e
 		return nil, nil
 	}
 	out := make([]string, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
 	for _, item := range items {
 		value := strings.TrimSpace(item)
 		if value == "" {
 			return nil, fmt.Errorf("%s %s required", owner, kind)
 		}
+		if _, exists := seen[value]; exists {
+			return nil, fmt.Errorf("%s %s duplicate: %q", owner, kind, value)
+		}
+		seen[value] = struct{}{}
 		out = append(out, value)
 	}
 	return out, nil
