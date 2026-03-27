@@ -4,10 +4,13 @@ import (
 	"encoding/hex"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bsv-blockchain/go-sdk/chainhash"
+	ec "github.com/bsv-blockchain/go-sdk/primitives/ec"
 	"github.com/bsv-blockchain/go-sdk/script"
 	tx "github.com/bsv-blockchain/go-sdk/transaction"
+	"github.com/bsv8/BFTP/pkg/infra/payflow"
 	ce "github.com/bsv8/MultisigPool/pkg/dual_endpoint"
 	kmlibs "github.com/bsv8/MultisigPool/pkg/libs"
 	_ "modernc.org/sqlite"
@@ -57,13 +60,21 @@ func TestValidateBaseTxMatchesSessionSpend(t *testing.T) {
 	}
 }
 
-func TestGatewayServicePayConfirmRejectListenFeeMismatch(t *testing.T) {
+func TestGatewayServicePayConfirmRejectListenQuoteAmountMismatch(t *testing.T) {
 	db := openTimelineTestDB(t)
+	serverPriv, err := ec.PrivateKeyFromHex("6666666666666666666666666666666666666666666666666666666666666666")
+	if err != nil {
+		t.Fatalf("server PrivateKeyFromHex failed: %v", err)
+	}
+	clientPriv, err := ec.PrivateKeyFromHex("7777777777777777777777777777777777777777777777777777777777777777")
+	if err != nil {
+		t.Fatalf("client PrivateKeyFromHex failed: %v", err)
+	}
 	row := GatewaySessionRow{
 		SpendTxID:                 "tx_listen_fee_mismatch",
 		ClientID:                  "client_a",
-		ClientBSVCompressedPubHex: "02aa",
-		ServerBSVCompressedPubHex: "03bb",
+		ClientBSVCompressedPubHex: hex.EncodeToString(clientPriv.PubKey().Compressed()),
+		ServerBSVCompressedPubHex: hex.EncodeToString(serverPriv.PubKey().Compressed()),
 		InputAmountSat:            1000,
 		PoolAmountSat:             1000,
 		SpendTxFeeSat:             1,
@@ -85,11 +96,39 @@ func TestGatewayServicePayConfirmRejectListenFeeMismatch(t *testing.T) {
 		Chain: stubChainForValidation{
 			tip: 10,
 		},
+		ServerPrivHex: strings.Repeat("66", 32),
 		Params: GatewayParams{
 			BillingCycleSeconds:         60,
 			SingleCycleFeeSatoshi:       50,
 			PayRejectBeforeExpiryBlocks: 1,
 		},
+	}
+	nowUnix := time.Now().Unix()
+	signedQuote, err := proof.SignServiceQuote(proof.ServiceQuote{
+		OfferHash:                  proof.HashPayloadBytes([]byte("offer")),
+		Domain:                     "bitcast-gateway",
+		ServiceType:                QuoteServiceTypeListenCycle,
+		ChargeReason:               QuoteServiceTypeListenCycle,
+		Target:                     "listen_cycle_fee",
+		GatewayPubkeyHex:           row.ServerBSVCompressedPubHex,
+		ClientPubkeyHex:            row.ClientBSVCompressedPubHex,
+		SpendTxID:                  row.SpendTxID,
+		ServiceParamsHash:          proof.HashPayloadBytes([]byte("params")),
+		SequenceNumber:             2,
+		ServerAmountBefore:         row.ServerAmountSat,
+		ChargeAmountSatoshi:        50,
+		ServerAmountAfter:          row.ServerAmountSat + 50,
+		GrantedServiceDeadlineUnix: nowUnix + 120,
+		GrantedDurationSeconds:     60,
+		QuoteExpiresAtUnix:         nowUnix + 60,
+		IssuedAtUnix:               nowUnix,
+	}, serverPriv)
+	if err != nil {
+		t.Fatalf("sign service quote failed: %v", err)
+	}
+	rawQuote, err := proof.MarshalServiceQuote(signedQuote)
+	if err != nil {
+		t.Fatalf("marshal service quote failed: %v", err)
 	}
 	resp, err := svc.PayConfirm(PayConfirmReq{
 		SpendTxID:           row.SpendTxID,
@@ -98,6 +137,7 @@ func TestGatewayServicePayConfirmRejectListenFeeMismatch(t *testing.T) {
 		Fee:                 row.SpendTxFeeSat,
 		ChargeReason:        "listen_cycle_fee",
 		ChargeAmountSatoshi: 1,
+		ServiceQuote:        rawQuote,
 	})
 	if err != nil {
 		t.Fatalf("pay confirm returned unexpected error: %v", err)
@@ -105,7 +145,7 @@ func TestGatewayServicePayConfirmRejectListenFeeMismatch(t *testing.T) {
 	if resp.Success {
 		t.Fatalf("pay confirm should be rejected")
 	}
-	if !strings.Contains(strings.ToLower(resp.Error), "listen cycle fee amount mismatch") {
+	if !strings.Contains(strings.ToLower(resp.Error), "service quote charge_amount mismatch") {
 		t.Fatalf("unexpected reject error: %s", resp.Error)
 	}
 

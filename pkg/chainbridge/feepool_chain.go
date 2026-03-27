@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/bsv8/BFTP/pkg/feepool/dual2of2"
+	"github.com/bsv8/BFTP/pkg/infra/poolcore"
 	"github.com/bsv8/WOCProxy/pkg/whatsonchain"
 	"github.com/bsv8/WOCProxy/pkg/wocproxy"
 )

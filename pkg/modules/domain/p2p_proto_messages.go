@@ -2,6 +2,30 @@ package domainsvc
 
 import oldproto "github.com/golang/protobuf/proto"
 
+func (m *NameRouteReq) Reset()         { *m = NameRouteReq{} }
+func (m *NameRouteReq) String() string { return oldproto.CompactTextString(m) }
+func (*NameRouteReq) ProtoMessage()    {}
+
+func (m *NameTargetRouteReq) Reset()         { *m = NameTargetRouteReq{} }
+func (m *NameTargetRouteReq) String() string { return oldproto.CompactTextString(m) }
+func (*NameTargetRouteReq) ProtoMessage()    {}
+
+func (m *DomainPricingBody) Reset()         { *m = DomainPricingBody{} }
+func (m *DomainPricingBody) String() string { return oldproto.CompactTextString(m) }
+func (*DomainPricingBody) ProtoMessage()    {}
+
+func (m *ListOwnedReq) Reset()         { *m = ListOwnedReq{} }
+func (m *ListOwnedReq) String() string { return oldproto.CompactTextString(m) }
+func (*ListOwnedReq) ProtoMessage()    {}
+
+func (m *OwnedNameItem) Reset()         { *m = OwnedNameItem{} }
+func (m *OwnedNameItem) String() string { return oldproto.CompactTextString(m) }
+func (*OwnedNameItem) ProtoMessage()    {}
+
+func (m *ListOwnedResp) Reset()         { *m = ListOwnedResp{} }
+func (m *ListOwnedResp) String() string { return oldproto.CompactTextString(m) }
+func (*ListOwnedResp) ProtoMessage()    {}
+
 func (m *ResolveNamePaidReq) Reset()         { *m = ResolveNamePaidReq{} }
 func (m *ResolveNamePaidReq) String() string { return oldproto.CompactTextString(m) }
 func (*ResolveNamePaidReq) ProtoMessage()    {}

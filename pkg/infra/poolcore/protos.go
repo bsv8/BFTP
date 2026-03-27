@@ -11,6 +11,7 @@ const (
 	ProtoFeePoolBaseTx protocol.ID = "/bsv-transfer/fee_pool/base_tx/1.0.0"
 
 	// Pay 阶段：更新 spend tx（不上链）。
+	ProtoServiceQuote      protocol.ID = "/bsv-transfer/fee_pool/service_quote/1.0.0"
 	ProtoFeePoolPayConfirm protocol.ID = "/bsv-transfer/fee_pool/pay_confirm/1.0.0"
 
 	// Close 阶段：最终结算并广播 final tx。

@@ -10,6 +10,14 @@ func (m *InfoResp) Reset()         { *m = InfoResp{} }
 func (m *InfoResp) String() string { return oldproto.CompactTextString(m) }
 func (*InfoResp) ProtoMessage()    {}
 
+func (m *ServiceQuoteReq) Reset()         { *m = ServiceQuoteReq{} }
+func (m *ServiceQuoteReq) String() string { return oldproto.CompactTextString(m) }
+func (*ServiceQuoteReq) ProtoMessage()    {}
+
+func (m *ServiceQuoteResp) Reset()         { *m = ServiceQuoteResp{} }
+func (m *ServiceQuoteResp) String() string { return oldproto.CompactTextString(m) }
+func (*ServiceQuoteResp) ProtoMessage()    {}
+
 func (m *CreateReq) Reset()         { *m = CreateReq{} }
 func (m *CreateReq) String() string { return oldproto.CompactTextString(m) }
 func (*CreateReq) ProtoMessage()    {}

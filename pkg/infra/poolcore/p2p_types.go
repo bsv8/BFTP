@@ -21,6 +21,20 @@ type InfoResp struct {
 	SingleQueryFeeSatoshi    uint64 `protobuf:"varint,9,opt,name=single_query_fee_satoshi,json=singleQueryFeeSatoshi,proto3" json:"single_query_fee_satoshi"`
 }
 
+type ServiceQuoteReq struct {
+	ClientID string `protobuf:"bytes,1,opt,name=client_pubkey_hex,json=clientId,proto3" json:"client_pubkey_hex"`
+
+	ServiceOffer         []byte `protobuf:"bytes,2,opt,name=service_offer,json=serviceOffer,proto3" json:"service_offer,omitempty"`
+	ServiceParamsPayload []byte `protobuf:"bytes,3,opt,name=service_params_payload,json=serviceParamsPayload,proto3" json:"service_params_payload,omitempty"`
+}
+
+type ServiceQuoteResp struct {
+	Success      bool   `protobuf:"varint,1,opt,name=success,proto3" json:"success"`
+	Status       string `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
+	ServiceQuote []byte `protobuf:"bytes,3,opt,name=service_quote,json=serviceQuote,proto3" json:"service_quote,omitempty"`
+	Error        string `protobuf:"bytes,4,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+}
+
 type CreateReq struct {
 	ClientID string `protobuf:"bytes,1,opt,name=client_pubkey_hex,json=clientId,proto3" json:"client_pubkey_hex"`
 
@@ -67,6 +81,9 @@ type PayConfirmReq struct {
 	ChargeReason        string `protobuf:"bytes,7,opt,name=charge_reason,json=chargeReason,proto3" json:"charge_reason,omitempty"`
 	ChargeAmountSatoshi uint64 `protobuf:"varint,8,opt,name=charge_amount_satoshi,json=chargeAmountSatoshi,proto3" json:"charge_amount_satoshi,omitempty"`
 	FileHash            string `protobuf:"bytes,9,opt,name=file_hash,json=fileHash,proto3" json:"file_hash,omitempty"`
+	ProofIntent         []byte `protobuf:"bytes,10,opt,name=proof_intent,json=proofIntent,proto3" json:"proof_intent,omitempty"`
+	SignedProofCommit   []byte `protobuf:"bytes,11,opt,name=signed_proof_commit,json=signedProofCommit,proto3" json:"signed_proof_commit,omitempty"`
+	ServiceQuote        []byte `protobuf:"bytes,13,opt,name=service_quote,json=serviceQuote,proto3" json:"service_quote,omitempty"`
 }
 
 type PayConfirmResp struct {
@@ -78,8 +95,11 @@ type PayConfirmResp struct {
 	ServerAmount uint64 `protobuf:"varint,5,opt,name=server_amount,json=serverAmount,proto3" json:"server_amount,omitempty"`
 	ClientAmount uint64 `protobuf:"varint,6,opt,name=client_amount,json=clientAmount,proto3" json:"client_amount,omitempty"`
 
-	ErrorCode string `protobuf:"bytes,7,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
-	Error     string `protobuf:"bytes,8,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	ErrorCode         string `protobuf:"bytes,7,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	Error             string `protobuf:"bytes,8,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	MergedCurrentTx   []byte `protobuf:"bytes,9,opt,name=merged_current_tx,json=mergedCurrentTx,proto3" json:"merged_current_tx,omitempty"`
+	ProofStatePayload []byte `protobuf:"bytes,10,opt,name=proof_state_payload,json=proofStatePayload,proto3" json:"proof_state_payload,omitempty"`
+	ServiceReceipt    []byte `protobuf:"bytes,11,opt,name=service_receipt,json=serviceReceipt,proto3" json:"service_receipt,omitempty"`
 }
 
 type CloseReq struct {
@@ -118,12 +138,13 @@ type StateResp struct {
 	ServerAmountSat uint64 `protobuf:"varint,9,opt,name=server_amount_satoshi,json=serverAmountSatoshi,proto3" json:"server_amount_satoshi"`
 	ClientAmountSat uint64 `protobuf:"varint,10,opt,name=client_amount_satoshi,json=clientAmountSatoshi,proto3" json:"client_amount_satoshi"`
 
-	LifecycleState string `protobuf:"bytes,11,opt,name=lifecycle_state,json=lifecycleState,proto3" json:"lifecycle_state,omitempty"`
-	Payability     string `protobuf:"bytes,12,opt,name=payability,proto3" json:"payability,omitempty"`
-	Phase          string `protobuf:"bytes,13,opt,name=phase,proto3" json:"phase,omitempty"`
-	ExpireHeight   uint32 `protobuf:"varint,14,opt,name=expire_height,json=expireHeight,proto3" json:"expire_height,omitempty"`
-	TipHeight      uint32 `protobuf:"varint,15,opt,name=tip_height,json=tipHeight,proto3" json:"tip_height,omitempty"`
-	OutpointSpent  bool   `protobuf:"varint,16,opt,name=outpoint_spent,json=outpointSpent,proto3" json:"outpoint_spent"`
+	LifecycleState    string `protobuf:"bytes,11,opt,name=lifecycle_state,json=lifecycleState,proto3" json:"lifecycle_state,omitempty"`
+	Payability        string `protobuf:"bytes,12,opt,name=payability,proto3" json:"payability,omitempty"`
+	Phase             string `protobuf:"bytes,13,opt,name=phase,proto3" json:"phase,omitempty"`
+	ExpireHeight      uint32 `protobuf:"varint,14,opt,name=expire_height,json=expireHeight,proto3" json:"expire_height,omitempty"`
+	TipHeight         uint32 `protobuf:"varint,15,opt,name=tip_height,json=tipHeight,proto3" json:"tip_height,omitempty"`
+	OutpointSpent     bool   `protobuf:"varint,16,opt,name=outpoint_spent,json=outpointSpent,proto3" json:"outpoint_spent"`
+	ProofStatePayload []byte `protobuf:"bytes,17,opt,name=proof_state_payload,json=proofStatePayload,proto3" json:"proof_state_payload,omitempty"`
 }
 
 // DemandPublishPaidReq/Resp 是“发布广播 + 扣费”的组合接口。
@@ -143,16 +164,22 @@ type DemandPublishPaidReq struct {
 	Fee                 uint64 `protobuf:"varint,10,opt,name=fee,proto3" json:"fee"`
 	ClientSignature     []byte `protobuf:"bytes,11,opt,name=client_signature,json=clientSignature,proto3" json:"signature"`
 	ChargeReason        string `protobuf:"bytes,12,opt,name=charge_reason,json=chargeReason,proto3" json:"charge_reason,omitempty"` // 默认 demand_publish_fee
+	ProofIntent         []byte `protobuf:"bytes,13,opt,name=proof_intent,json=proofIntent,proto3" json:"proof_intent,omitempty"`
+	SignedProofCommit   []byte `protobuf:"bytes,14,opt,name=signed_proof_commit,json=signedProofCommit,proto3" json:"signed_proof_commit,omitempty"`
+	ServiceQuote        []byte `protobuf:"bytes,16,opt,name=service_quote,json=serviceQuote,proto3" json:"service_quote,omitempty"`
 }
 
 type DemandPublishPaidResp struct {
-	Success       bool   `protobuf:"varint,1,opt,name=success,proto3" json:"success"`
-	Status        string `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
-	DemandID      string `protobuf:"bytes,3,opt,name=demand_id,json=demandId,proto3" json:"demand_id,omitempty"`
-	Published     bool   `protobuf:"varint,4,opt,name=published,proto3" json:"published"`
-	ChargedAmount uint64 `protobuf:"varint,5,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
-	UpdatedTxID   string `protobuf:"bytes,6,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
-	Error         string `protobuf:"bytes,7,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	Success           bool   `protobuf:"varint,1,opt,name=success,proto3" json:"success"`
+	Status            string `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
+	DemandID          string `protobuf:"bytes,3,opt,name=demand_id,json=demandId,proto3" json:"demand_id,omitempty"`
+	Published         bool   `protobuf:"varint,4,opt,name=published,proto3" json:"published"`
+	ChargedAmount     uint64 `protobuf:"varint,5,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
+	UpdatedTxID       string `protobuf:"bytes,6,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
+	Error             string `protobuf:"bytes,7,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	MergedCurrentTx   []byte `protobuf:"bytes,8,opt,name=merged_current_tx,json=mergedCurrentTx,proto3" json:"merged_current_tx,omitempty"`
+	ProofStatePayload []byte `protobuf:"bytes,9,opt,name=proof_state_payload,json=proofStatePayload,proto3" json:"proof_state_payload,omitempty"`
+	ServiceReceipt    []byte `protobuf:"bytes,10,opt,name=service_receipt,json=serviceReceipt,proto3" json:"service_receipt,omitempty"`
 }
 
 // DemandPublishBatchPaidReq/Resp 是“批量发布静态需求 + 扣费”的组合接口。
@@ -178,6 +205,9 @@ type DemandPublishBatchPaidReq struct {
 	Fee                 uint64 `protobuf:"varint,8,opt,name=fee,proto3" json:"fee"`
 	ClientSignature     []byte `protobuf:"bytes,9,opt,name=client_signature,json=clientSignature,proto3" json:"signature"`
 	ChargeReason        string `protobuf:"bytes,10,opt,name=charge_reason,json=chargeReason,proto3" json:"charge_reason,omitempty"`
+	ProofIntent         []byte `protobuf:"bytes,11,opt,name=proof_intent,json=proofIntent,proto3" json:"proof_intent,omitempty"`
+	SignedProofCommit   []byte `protobuf:"bytes,12,opt,name=signed_proof_commit,json=signedProofCommit,proto3" json:"signed_proof_commit,omitempty"`
+	ServiceQuote        []byte `protobuf:"bytes,14,opt,name=service_quote,json=serviceQuote,proto3" json:"service_quote,omitempty"`
 }
 
 type DemandPublishBatchPaidResult struct {
@@ -188,13 +218,16 @@ type DemandPublishBatchPaidResult struct {
 }
 
 type DemandPublishBatchPaidResp struct {
-	Success        bool                            `protobuf:"varint,1,opt,name=success,proto3" json:"success"`
-	Status         string                          `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
-	Items          []*DemandPublishBatchPaidResult `protobuf:"bytes,3,rep,name=items,proto3" json:"items,omitempty"`
-	PublishedCount uint32                          `protobuf:"varint,4,opt,name=published_count,json=publishedCount,proto3" json:"published_count,omitempty"`
-	ChargedAmount  uint64                          `protobuf:"varint,5,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
-	UpdatedTxID    string                          `protobuf:"bytes,6,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
-	Error          string                          `protobuf:"bytes,7,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	Success           bool                            `protobuf:"varint,1,opt,name=success,proto3" json:"success"`
+	Status            string                          `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
+	Items             []*DemandPublishBatchPaidResult `protobuf:"bytes,3,rep,name=items,proto3" json:"items,omitempty"`
+	PublishedCount    uint32                          `protobuf:"varint,4,opt,name=published_count,json=publishedCount,proto3" json:"published_count,omitempty"`
+	ChargedAmount     uint64                          `protobuf:"varint,5,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
+	UpdatedTxID       string                          `protobuf:"bytes,6,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
+	Error             string                          `protobuf:"bytes,7,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	MergedCurrentTx   []byte                          `protobuf:"bytes,8,opt,name=merged_current_tx,json=mergedCurrentTx,proto3" json:"merged_current_tx,omitempty"`
+	ProofStatePayload []byte                          `protobuf:"bytes,9,opt,name=proof_state_payload,json=proofStatePayload,proto3" json:"proof_state_payload,omitempty"`
+	ServiceReceipt    []byte                          `protobuf:"bytes,10,opt,name=service_receipt,json=serviceReceipt,proto3" json:"service_receipt,omitempty"`
 }
 
 // LiveDemandPublishPaidReq/Resp 是“直播需求广播 + 扣费”的组合接口。
@@ -216,16 +249,22 @@ type LiveDemandPublishPaidReq struct {
 	Fee                 uint64 `protobuf:"varint,10,opt,name=fee,proto3" json:"fee"`
 	ClientSignature     []byte `protobuf:"bytes,11,opt,name=client_signature,json=clientSignature,proto3" json:"signature"`
 	ChargeReason        string `protobuf:"bytes,12,opt,name=charge_reason,json=chargeReason,proto3" json:"charge_reason,omitempty"` // 默认 live_demand_publish_fee
+	ProofIntent         []byte `protobuf:"bytes,13,opt,name=proof_intent,json=proofIntent,proto3" json:"proof_intent,omitempty"`
+	SignedProofCommit   []byte `protobuf:"bytes,14,opt,name=signed_proof_commit,json=signedProofCommit,proto3" json:"signed_proof_commit,omitempty"`
+	ServiceQuote        []byte `protobuf:"bytes,16,opt,name=service_quote,json=serviceQuote,proto3" json:"service_quote,omitempty"`
 }
 
 type LiveDemandPublishPaidResp struct {
-	Success       bool   `protobuf:"varint,1,opt,name=success,proto3" json:"success"`
-	Status        string `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
-	DemandID      string `protobuf:"bytes,3,opt,name=demand_id,json=demandId,proto3" json:"demand_id,omitempty"`
-	Published     bool   `protobuf:"varint,4,opt,name=published,proto3" json:"published"`
-	ChargedAmount uint64 `protobuf:"varint,5,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
-	UpdatedTxID   string `protobuf:"bytes,6,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
-	Error         string `protobuf:"bytes,7,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	Success           bool   `protobuf:"varint,1,opt,name=success,proto3" json:"success"`
+	Status            string `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
+	DemandID          string `protobuf:"bytes,3,opt,name=demand_id,json=demandId,proto3" json:"demand_id,omitempty"`
+	Published         bool   `protobuf:"varint,4,opt,name=published,proto3" json:"published"`
+	ChargedAmount     uint64 `protobuf:"varint,5,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
+	UpdatedTxID       string `protobuf:"bytes,6,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
+	Error             string `protobuf:"bytes,7,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	MergedCurrentTx   []byte `protobuf:"bytes,8,opt,name=merged_current_tx,json=mergedCurrentTx,proto3" json:"merged_current_tx,omitempty"`
+	ProofStatePayload []byte `protobuf:"bytes,9,opt,name=proof_state_payload,json=proofStatePayload,proto3" json:"proof_state_payload,omitempty"`
+	ServiceReceipt    []byte `protobuf:"bytes,10,opt,name=service_receipt,json=serviceReceipt,proto3" json:"service_receipt,omitempty"`
 }
 
 // NodeReachabilityAnnouncePaidReq/Resp 是“地址声明发布 + 扣费”的组合接口。
@@ -236,29 +275,30 @@ type LiveDemandPublishPaidResp struct {
 type NodeReachabilityAnnouncePaidReq struct {
 	ClientID string `protobuf:"bytes,1,opt,name=client_pubkey_hex,json=clientId,proto3" json:"client_pubkey_hex"`
 
-	Multiaddrs      []string `protobuf:"bytes,2,rep,name=multiaddrs,proto3" json:"multiaddrs,omitempty"`
-	HeadHeight      uint64   `protobuf:"varint,3,opt,name=head_height,json=headHeight,proto3" json:"head_height"`
-	Seq             uint64   `protobuf:"varint,4,opt,name=seq,proto3" json:"seq"`
-	PublishedAtUnix int64    `protobuf:"varint,5,opt,name=published_at_unix,json=publishedAtUnix,proto3" json:"published_at_unix"`
-	ExpiresAtUnix   int64    `protobuf:"varint,6,opt,name=expires_at_unix,json=expiresAtUnix,proto3" json:"expires_at_unix"`
-	Signature       []byte   `protobuf:"bytes,7,opt,name=signature,proto3" json:"signature"`
+	SignedAnnouncement []byte `protobuf:"bytes,2,opt,name=signed_announcement,json=signedAnnouncement,proto3" json:"signed_announcement"`
 
-	SpendTxID           string `protobuf:"bytes,8,opt,name=spend_txid,json=spendTxid,proto3" json:"spend_txid"`
-	SequenceNumber      uint32 `protobuf:"varint,9,opt,name=sequence_number,json=sequenceNumber,proto3" json:"sequence_number"`
-	ServerAmount        uint64 `protobuf:"varint,10,opt,name=server_amount,json=serverAmount,proto3" json:"server_amount"`
-	ChargeAmountSatoshi uint64 `protobuf:"varint,11,opt,name=charge_amount_satoshi,json=chargeAmountSatoshi,proto3" json:"charge_amount_satoshi"`
-	Fee                 uint64 `protobuf:"varint,12,opt,name=fee,proto3" json:"fee"`
-	ClientSignature     []byte `protobuf:"bytes,13,opt,name=client_signature,json=clientSignature,proto3" json:"client_signature"`
-	ChargeReason        string `protobuf:"bytes,14,opt,name=charge_reason,json=chargeReason,proto3" json:"charge_reason,omitempty"`
+	SpendTxID           string `protobuf:"bytes,3,opt,name=spend_txid,json=spendTxid,proto3" json:"spend_txid"`
+	SequenceNumber      uint32 `protobuf:"varint,4,opt,name=sequence_number,json=sequenceNumber,proto3" json:"sequence_number"`
+	ServerAmount        uint64 `protobuf:"varint,5,opt,name=server_amount,json=serverAmount,proto3" json:"server_amount"`
+	ChargeAmountSatoshi uint64 `protobuf:"varint,6,opt,name=charge_amount_satoshi,json=chargeAmountSatoshi,proto3" json:"charge_amount_satoshi"`
+	Fee                 uint64 `protobuf:"varint,7,opt,name=fee,proto3" json:"fee"`
+	ClientSignature     []byte `protobuf:"bytes,8,opt,name=client_signature,json=clientSignature,proto3" json:"client_signature"`
+	ChargeReason        string `protobuf:"bytes,9,opt,name=charge_reason,json=chargeReason,proto3" json:"charge_reason,omitempty"`
+	ProofIntent         []byte `protobuf:"bytes,10,opt,name=proof_intent,json=proofIntent,proto3" json:"proof_intent,omitempty"`
+	SignedProofCommit   []byte `protobuf:"bytes,11,opt,name=signed_proof_commit,json=signedProofCommit,proto3" json:"signed_proof_commit,omitempty"`
+	ServiceQuote        []byte `protobuf:"bytes,13,opt,name=service_quote,json=serviceQuote,proto3" json:"service_quote,omitempty"`
 }
 
 type NodeReachabilityAnnouncePaidResp struct {
-	Success       bool   `protobuf:"varint,1,opt,name=success,proto3" json:"success"`
-	Status        string `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
-	Published     bool   `protobuf:"varint,3,opt,name=published,proto3" json:"published"`
-	ChargedAmount uint64 `protobuf:"varint,4,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
-	UpdatedTxID   string `protobuf:"bytes,5,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
-	Error         string `protobuf:"bytes,6,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	Success           bool   `protobuf:"varint,1,opt,name=success,proto3" json:"success"`
+	Status            string `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
+	Published         bool   `protobuf:"varint,3,opt,name=published,proto3" json:"published"`
+	ChargedAmount     uint64 `protobuf:"varint,4,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
+	UpdatedTxID       string `protobuf:"bytes,5,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
+	Error             string `protobuf:"bytes,6,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	MergedCurrentTx   []byte `protobuf:"bytes,7,opt,name=merged_current_tx,json=mergedCurrentTx,proto3" json:"merged_current_tx,omitempty"`
+	ProofStatePayload []byte `protobuf:"bytes,8,opt,name=proof_state_payload,json=proofStatePayload,proto3" json:"proof_state_payload,omitempty"`
+	ServiceReceipt    []byte `protobuf:"bytes,9,opt,name=service_receipt,json=serviceReceipt,proto3" json:"service_receipt,omitempty"`
 }
 
 // NodeReachabilityQueryPaidReq/Resp 是“地址目录查询 + 扣费”的组合接口。
@@ -277,6 +317,9 @@ type NodeReachabilityQueryPaidReq struct {
 	Fee                 uint64 `protobuf:"varint,7,opt,name=fee,proto3" json:"fee"`
 	ClientSignature     []byte `protobuf:"bytes,8,opt,name=client_signature,json=clientSignature,proto3" json:"client_signature"`
 	ChargeReason        string `protobuf:"bytes,9,opt,name=charge_reason,json=chargeReason,proto3" json:"charge_reason,omitempty"`
+	ProofIntent         []byte `protobuf:"bytes,10,opt,name=proof_intent,json=proofIntent,proto3" json:"proof_intent,omitempty"`
+	SignedProofCommit   []byte `protobuf:"bytes,11,opt,name=signed_proof_commit,json=signedProofCommit,proto3" json:"signed_proof_commit,omitempty"`
+	ServiceQuote        []byte `protobuf:"bytes,13,opt,name=service_quote,json=serviceQuote,proto3" json:"service_quote,omitempty"`
 }
 
 type NodeReachabilityQueryPaidResp struct {
@@ -287,11 +330,9 @@ type NodeReachabilityQueryPaidResp struct {
 	UpdatedTxID   string `protobuf:"bytes,5,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
 	Error         string `protobuf:"bytes,6,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
 
-	TargetNodePubkeyHex string   `protobuf:"bytes,7,opt,name=target_node_pubkey_hex,json=targetNodePubkeyHex,proto3" json:"target_node_pubkey_hex,omitempty"`
-	Multiaddrs          []string `protobuf:"bytes,8,rep,name=multiaddrs,proto3" json:"multiaddrs,omitempty"`
-	HeadHeight          uint64   `protobuf:"varint,9,opt,name=head_height,json=headHeight,proto3" json:"head_height,omitempty"`
-	Seq                 uint64   `protobuf:"varint,10,opt,name=seq,proto3" json:"seq,omitempty"`
-	PublishedAtUnix     int64    `protobuf:"varint,11,opt,name=published_at_unix,json=publishedAtUnix,proto3" json:"published_at_unix,omitempty"`
-	ExpiresAtUnix       int64    `protobuf:"varint,12,opt,name=expires_at_unix,json=expiresAtUnix,proto3" json:"expires_at_unix,omitempty"`
-	Signature           []byte   `protobuf:"bytes,13,opt,name=signature,proto3" json:"signature,omitempty"`
+	TargetNodePubkeyHex string `protobuf:"bytes,7,opt,name=target_node_pubkey_hex,json=targetNodePubkeyHex,proto3" json:"target_node_pubkey_hex,omitempty"`
+	SignedAnnouncement  []byte `protobuf:"bytes,8,opt,name=signed_announcement,json=signedAnnouncement,proto3" json:"signed_announcement,omitempty"`
+	MergedCurrentTx     []byte `protobuf:"bytes,9,opt,name=merged_current_tx,json=mergedCurrentTx,proto3" json:"merged_current_tx,omitempty"`
+	ProofStatePayload   []byte `protobuf:"bytes,10,opt,name=proof_state_payload,json=proofStatePayload,proto3" json:"proof_state_payload,omitempty"`
+	ServiceReceipt      []byte `protobuf:"bytes,11,opt,name=service_receipt,json=serviceReceipt,proto3" json:"service_receipt,omitempty"`
 }

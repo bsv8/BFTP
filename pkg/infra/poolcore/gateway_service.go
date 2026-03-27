@@ -11,6 +11,7 @@ import (
 
 	ec "github.com/bsv-blockchain/go-sdk/primitives/ec"
 	tx "github.com/bsv-blockchain/go-sdk/transaction"
+	"github.com/bsv8/BFTP/pkg/infra/payflow"
 	"github.com/bsv8/BFTP/pkg/obs"
 	ce "github.com/bsv8/MultisigPool/pkg/dual_endpoint"
 	"github.com/bsv8/MultisigPool/pkg/libs"
@@ -43,6 +44,20 @@ type GatewayService struct {
 	IsMainnet bool
 
 	mu sync.Mutex
+}
+
+func requiresBoundServiceQuote(chargeReason string) bool {
+	switch strings.TrimSpace(chargeReason) {
+	case QuoteServiceTypeListenCycle,
+		QuoteServiceTypeDemandPublish,
+		QuoteServiceTypeDemandPublishBatch,
+		QuoteServiceTypeLiveDemandPublish,
+		QuoteServiceTypeNodeReachabilityAnnounce,
+		QuoteServiceTypeNodeReachabilityQuery:
+		return true
+	default:
+		return false
+	}
 }
 
 const (
@@ -363,19 +378,22 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 	if chargeReason == "" {
 		chargeReason = "unspecified"
 	}
+	var boundQuote proof.ServiceQuote
+	if requiresBoundServiceQuote(chargeReason) {
+		if len(req.ServiceQuote) == 0 {
+			return payReject(row.LifecycleState, "service_quote_required", "service quote required"), nil
+		}
+		quoted, _, err := validateServiceQuoteAgainstPay(row, req)
+		if err != nil {
+			return payReject(row.LifecycleState, "service_quote_invalid", err.Error()), nil
+		}
+		boundQuote = quoted
+	}
 	if req.ChargeAmountSatoshi != delta {
 		return payReject(row.LifecycleState, "fee_amount_mismatch", fmt.Sprintf("charge amount must equal server_amount delta: charge=%d delta=%d", req.ChargeAmountSatoshi, delta)), nil
 	}
 	if req.ServerAmount+row.SpendTxFeeSat > row.PoolAmountSat {
 		return payReject(row.LifecycleState, "pool_insufficient", fmt.Sprintf("pool cannot cover charge: pool=%d server=%d fee=%d", row.PoolAmountSat, req.ServerAmount, row.SpendTxFeeSat)), nil
-	}
-	if chargeReason == "listen_cycle_fee" {
-		if s.Params.SingleCycleFeeSatoshi == 0 {
-			return PayConfirmResp{}, fmt.Errorf("single_cycle_fee_satoshi must be configured for listen_cycle_fee")
-		}
-		if delta != s.Params.SingleCycleFeeSatoshi {
-			return payReject(row.LifecycleState, "fee_amount_mismatch", fmt.Sprintf("listen cycle fee amount mismatch: got=%d expect=%d", delta, s.Params.SingleCycleFeeSatoshi)), nil
-		}
 	}
 	expireBefore, hasBefore, err := sessionExpireHeight(row.CurrentTxHex)
 	if err != nil {
@@ -401,32 +419,52 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 	if err != nil {
 		return payReject(row.LifecycleState, "invalid_tx_update", "rebuild updated tx failed: "+err.Error()), nil
 	}
-	expireAfter, hasAfter, err := sessionExpireHeight(updatedTx.Hex())
+	proofPayload, _, err := buildPayConfirmProofPayload(row, req, updatedTx.Hex())
+	if err != nil {
+		return payReject(row.LifecycleState, "proof_invalid", err.Error()), nil
+	}
+	updatedTxForSign := updatedTx
+	if proofPayload != nil {
+		updatedTxForSign, err = ce.LoadTxWithProof(
+			row.CurrentTxHex,
+			nil,
+			req.SequenceNumber,
+			req.ServerAmount,
+			serverActor.PubKey,
+			clientPub,
+			row.PoolAmountSat,
+			proofPayload,
+		)
+		if err != nil {
+			return payReject(row.LifecycleState, "invalid_tx_update", "rebuild proof tx failed: "+err.Error()), nil
+		}
+	}
+	expireAfter, hasAfter, err := sessionExpireHeight(updatedTxForSign.Hex())
 	if err != nil {
 		return payReject(row.LifecycleState, "invalid_tx_locktime", "parse updated tx expire height failed"), nil
 	}
 	if hasBefore != hasAfter || (hasBefore && expireBefore != expireAfter) {
 		return payReject(row.LifecycleState, "invalid_tx_locktime", fmt.Sprintf("expire height changed: before=%d after=%d", expireBefore, expireAfter)), nil
 	}
-	if !isSameSpendInput(row.CurrentTxHex, updatedTx.Hex()) {
+	if !isSameSpendInput(row.CurrentTxHex, updatedTxForSign.Hex()) {
 		return payReject(row.LifecycleState, "invalid_tx_input", "updated tx input outpoint mismatch"), nil
 	}
 	clientSig := append([]byte(nil), req.ClientSig...)
 	if len(clientSig) == 0 {
 		return payReject(row.LifecycleState, "signature_required", "signature required"), nil
 	}
-	ok, err := ce.ServerVerifyClientUpdateSig(updatedTx, serverActor.PubKey, clientPub, &clientSig)
+	ok, err := ce.ServerVerifyClientUpdateSig(updatedTxForSign, serverActor.PubKey, clientPub, &clientSig)
 	if err != nil {
 		return payReject(row.LifecycleState, "signature_invalid", "verify client update sig failed: "+err.Error()), nil
 	}
 	if !ok {
 		return payReject(row.LifecycleState, "signature_invalid", "client update signature invalid"), nil
 	}
-	serverSig, err := ce.SpendTXServerSign(updatedTx, row.PoolAmountSat, serverActor.PrivKey, clientPub)
+	serverSig, err := ce.SpendTXServerSign(updatedTxForSign, row.PoolAmountSat, serverActor.PrivKey, clientPub)
 	if err != nil {
 		return payReject(row.LifecycleState, "server_sign_failed", "server sign failed: "+err.Error()), nil
 	}
-	mergedTx, err := ce.MergeDualPoolSigForSpendTx(updatedTx.Hex(), serverSig, &clientSig)
+	mergedTx, err := ce.MergeDualPoolSigForSpendTx(updatedTxForSign.Hex(), serverSig, &clientSig)
 	if err != nil {
 		return payReject(row.LifecycleState, "merge_signatures_failed", "merge signatures failed: "+err.Error()), nil
 	}
@@ -441,10 +479,11 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 	billingCycleSeconds := s.Params.BillingCycleSeconds
 	effectiveUntilUnix := nowUnix
 	if chargeReason == "listen_cycle_fee" {
-		if billingCycleSeconds == 0 {
-			return PayConfirmResp{}, fmt.Errorf("billing_cycle_seconds must be configured for listen_cycle_fee")
+		if boundQuote.GrantedDurationSeconds == 0 || boundQuote.GrantedServiceDeadlineUnix <= 0 {
+			return payReject(row.LifecycleState, "service_quote_invalid", "listen cycle quote granted duration missing"), nil
 		}
-		effectiveUntilUnix = nowUnix + int64(billingCycleSeconds)
+		billingCycleSeconds = boundQuote.GrantedDurationSeconds
+		effectiveUntilUnix = boundQuote.GrantedServiceDeadlineUnix
 	}
 	if err := InsertChargeEvent(
 		s.DB,
@@ -468,14 +507,24 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 		"reason":        req.ChargeReason,
 		"amount":        req.ChargeAmountSatoshi,
 	})
-	return PayConfirmResp{
-		Success:      true,
-		Status:       row.LifecycleState,
-		UpdatedTxID:  updatedTxID,
-		Sequence:     row.Sequence,
-		ServerAmount: row.ServerAmountSat,
-		ClientAmount: row.ClientAmountSat,
-	}, nil
+	resp := PayConfirmResp{
+		Success:           true,
+		Status:            row.LifecycleState,
+		UpdatedTxID:       updatedTxID,
+		Sequence:          row.Sequence,
+		ServerAmount:      row.ServerAmountSat,
+		ClientAmount:      row.ClientAmountSat,
+		MergedCurrentTx:   mergedTx.Bytes(),
+		ProofStatePayload: append([]byte(nil), proofPayload...),
+	}
+	if len(proofPayload) > 0 && strings.TrimSpace(req.ChargeReason) != "" {
+		serviceReceipt, err := BuildSignedServiceReceipt(s.ServerPrivHex, s.IsMainnet, row.ClientID, resp, strings.TrimSpace(req.ChargeReason), "ok", nil)
+		if err != nil {
+			return PayConfirmResp{}, err
+		}
+		resp.ServiceReceipt = serviceReceipt
+	}
+	return resp, nil
 }
 
 func (s *GatewayService) ensureInitialOpenChargeEvent(row GatewaySessionRow) error {
@@ -655,23 +704,30 @@ func (s *GatewayService) State(req StateReq) (StateResp, error) {
 		payability = payabilityBlocked
 	}
 	currentTx, _ := hex.DecodeString(strings.TrimSpace(row.CurrentTxHex))
+	var proofPayload []byte
+	if state, ok, pErr := proof.ExtractProofStateFromTxHex(row.CurrentTxHex); pErr == nil && ok {
+		if raw, mErr := proof.MarshalProofState(state); mErr == nil {
+			proofPayload = raw
+		}
+	}
 	return StateResp{
-		Status:          row.LifecycleState,
-		SpendTxID:       row.SpendTxID,
-		BaseTxID:        row.BaseTxID,
-		FinalTxID:       row.FinalTxID,
-		CurrentTx:       currentTx,
-		PoolAmountSat:   row.PoolAmountSat,
-		SpendTxFeeSat:   row.SpendTxFeeSat,
-		Sequence:        row.Sequence,
-		ServerAmountSat: row.ServerAmountSat,
-		ClientAmountSat: row.ClientAmountSat,
-		LifecycleState:  row.LifecycleState,
-		Payability:      payability,
-		Phase:           phase,
-		ExpireHeight:    expireHeight,
-		TipHeight:       tip,
-		OutpointSpent:   strings.TrimSpace(row.FinalTxID) != "",
+		Status:            row.LifecycleState,
+		SpendTxID:         row.SpendTxID,
+		BaseTxID:          row.BaseTxID,
+		FinalTxID:         row.FinalTxID,
+		CurrentTx:         currentTx,
+		PoolAmountSat:     row.PoolAmountSat,
+		SpendTxFeeSat:     row.SpendTxFeeSat,
+		Sequence:          row.Sequence,
+		ServerAmountSat:   row.ServerAmountSat,
+		ClientAmountSat:   row.ClientAmountSat,
+		LifecycleState:    row.LifecycleState,
+		Payability:        payability,
+		Phase:             phase,
+		ExpireHeight:      expireHeight,
+		TipHeight:         tip,
+		OutpointSpent:     strings.TrimSpace(row.FinalTxID) != "",
+		ProofStatePayload: append([]byte(nil), proofPayload...),
 	}, nil
 }
 

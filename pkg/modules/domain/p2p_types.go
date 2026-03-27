@@ -12,19 +12,25 @@ type ResolveNamePaidReq struct {
 	Fee                 uint64 `protobuf:"varint,7,opt,name=fee,proto3" json:"fee"`
 	ClientSignature     []byte `protobuf:"bytes,8,opt,name=client_signature,json=clientSignature,proto3" json:"client_signature"`
 	ChargeReason        string `protobuf:"bytes,9,opt,name=charge_reason,json=chargeReason,proto3" json:"charge_reason,omitempty"`
+	ProofIntent         []byte `protobuf:"bytes,10,opt,name=proof_intent,json=proofIntent,proto3" json:"proof_intent,omitempty"`
+	SignedProofCommit   []byte `protobuf:"bytes,11,opt,name=signed_proof_commit,json=signedProofCommit,proto3" json:"signed_proof_commit,omitempty"`
+	ServiceQuote        []byte `protobuf:"bytes,13,opt,name=service_quote,json=serviceQuote,proto3" json:"service_quote,omitempty"`
 }
 
 type ResolveNamePaidResp struct {
-	Success          bool   `protobuf:"varint,1,opt,name=success,proto3" json:"success"`
-	Status           string `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
-	Name             string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	OwnerPubkeyHex   string `protobuf:"bytes,4,opt,name=owner_pubkey_hex,json=ownerPubkeyHex,proto3" json:"owner_pubkey_hex,omitempty"`
-	TargetPubkeyHex  string `protobuf:"bytes,5,opt,name=target_pubkey_hex,json=targetPubkeyHex,proto3" json:"target_pubkey_hex,omitempty"`
-	ExpireAtUnix     int64  `protobuf:"varint,6,opt,name=expire_at_unix,json=expireAtUnix,proto3" json:"expire_at_unix,omitempty"`
-	ChargedAmount    uint64 `protobuf:"varint,7,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
-	UpdatedTxID      string `protobuf:"bytes,8,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
-	SignedRecordJSON []byte `protobuf:"bytes,9,opt,name=signed_record_json,json=signedRecordJson,proto3" json:"signed_record_json,omitempty"`
-	Error            string `protobuf:"bytes,10,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	Success           bool   `protobuf:"varint,1,opt,name=success,proto3" json:"success"`
+	Status            string `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
+	Name              string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	OwnerPubkeyHex    string `protobuf:"bytes,4,opt,name=owner_pubkey_hex,json=ownerPubkeyHex,proto3" json:"owner_pubkey_hex,omitempty"`
+	TargetPubkeyHex   string `protobuf:"bytes,5,opt,name=target_pubkey_hex,json=targetPubkeyHex,proto3" json:"target_pubkey_hex,omitempty"`
+	ExpireAtUnix      int64  `protobuf:"varint,6,opt,name=expire_at_unix,json=expireAtUnix,proto3" json:"expire_at_unix,omitempty"`
+	ChargedAmount     uint64 `protobuf:"varint,7,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
+	UpdatedTxID       string `protobuf:"bytes,8,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
+	SignedRecordJSON  []byte `protobuf:"bytes,9,opt,name=signed_record_json,json=signedRecordJson,proto3" json:"signed_record_json,omitempty"`
+	Error             string `protobuf:"bytes,10,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	MergedCurrentTx   []byte `protobuf:"bytes,11,opt,name=merged_current_tx,json=mergedCurrentTx,proto3" json:"merged_current_tx,omitempty"`
+	ProofStatePayload []byte `protobuf:"bytes,12,opt,name=proof_state_payload,json=proofStatePayload,proto3" json:"proof_state_payload,omitempty"`
+	ServiceReceipt    []byte `protobuf:"bytes,13,opt,name=service_receipt,json=serviceReceipt,proto3" json:"service_receipt,omitempty"`
 }
 
 type QueryNamePaidReq struct {
@@ -39,6 +45,9 @@ type QueryNamePaidReq struct {
 	Fee                 uint64 `protobuf:"varint,7,opt,name=fee,proto3" json:"fee"`
 	ClientSignature     []byte `protobuf:"bytes,8,opt,name=client_signature,json=clientSignature,proto3" json:"client_signature"`
 	ChargeReason        string `protobuf:"bytes,9,opt,name=charge_reason,json=chargeReason,proto3" json:"charge_reason,omitempty"`
+	ProofIntent         []byte `protobuf:"bytes,10,opt,name=proof_intent,json=proofIntent,proto3" json:"proof_intent,omitempty"`
+	SignedProofCommit   []byte `protobuf:"bytes,11,opt,name=signed_proof_commit,json=signedProofCommit,proto3" json:"signed_proof_commit,omitempty"`
+	ServiceQuote        []byte `protobuf:"bytes,13,opt,name=service_quote,json=serviceQuote,proto3" json:"service_quote,omitempty"`
 }
 
 type QueryNamePaidResp struct {
@@ -62,6 +71,9 @@ type QueryNamePaidResp struct {
 	UpdatedTxID              string `protobuf:"bytes,18,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
 	SignedRecordJSON         []byte `protobuf:"bytes,19,opt,name=signed_record_json,json=signedRecordJson,proto3" json:"signed_record_json,omitempty"`
 	Error                    string `protobuf:"bytes,20,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	MergedCurrentTx          []byte `protobuf:"bytes,21,opt,name=merged_current_tx,json=mergedCurrentTx,proto3" json:"merged_current_tx,omitempty"`
+	ProofStatePayload        []byte `protobuf:"bytes,22,opt,name=proof_state_payload,json=proofStatePayload,proto3" json:"proof_state_payload,omitempty"`
+	ServiceReceipt           []byte `protobuf:"bytes,23,opt,name=service_receipt,json=serviceReceipt,proto3" json:"service_receipt,omitempty"`
 }
 
 type RegisterLockPaidReq struct {
@@ -77,6 +89,9 @@ type RegisterLockPaidReq struct {
 	Fee                 uint64 `protobuf:"varint,8,opt,name=fee,proto3" json:"fee"`
 	ClientSignature     []byte `protobuf:"bytes,9,opt,name=client_signature,json=clientSignature,proto3" json:"client_signature"`
 	ChargeReason        string `protobuf:"bytes,10,opt,name=charge_reason,json=chargeReason,proto3" json:"charge_reason,omitempty"`
+	ProofIntent         []byte `protobuf:"bytes,11,opt,name=proof_intent,json=proofIntent,proto3" json:"proof_intent,omitempty"`
+	SignedProofCommit   []byte `protobuf:"bytes,12,opt,name=signed_proof_commit,json=signedProofCommit,proto3" json:"signed_proof_commit,omitempty"`
+	ServiceQuote        []byte `protobuf:"bytes,14,opt,name=service_quote,json=serviceQuote,proto3" json:"service_quote,omitempty"`
 }
 
 type RegisterLockPaidResp struct {
@@ -89,6 +104,9 @@ type RegisterLockPaidResp struct {
 	UpdatedTxID       string `protobuf:"bytes,7,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
 	SignedQuoteJSON   []byte `protobuf:"bytes,8,opt,name=signed_quote_json,json=signedQuoteJson,proto3" json:"signed_quote_json,omitempty"`
 	Error             string `protobuf:"bytes,9,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	MergedCurrentTx   []byte `protobuf:"bytes,10,opt,name=merged_current_tx,json=mergedCurrentTx,proto3" json:"merged_current_tx,omitempty"`
+	ProofStatePayload []byte `protobuf:"bytes,11,opt,name=proof_state_payload,json=proofStatePayload,proto3" json:"proof_state_payload,omitempty"`
+	ServiceReceipt    []byte `protobuf:"bytes,12,opt,name=service_receipt,json=serviceReceipt,proto3" json:"service_receipt,omitempty"`
 }
 
 type RegisterSubmitReq struct {
@@ -122,17 +140,23 @@ type SetTargetPaidReq struct {
 	Fee                 uint64 `protobuf:"varint,8,opt,name=fee,proto3" json:"fee"`
 	ClientSignature     []byte `protobuf:"bytes,9,opt,name=client_signature,json=clientSignature,proto3" json:"client_signature"`
 	ChargeReason        string `protobuf:"bytes,10,opt,name=charge_reason,json=chargeReason,proto3" json:"charge_reason,omitempty"`
+	ProofIntent         []byte `protobuf:"bytes,11,opt,name=proof_intent,json=proofIntent,proto3" json:"proof_intent,omitempty"`
+	SignedProofCommit   []byte `protobuf:"bytes,12,opt,name=signed_proof_commit,json=signedProofCommit,proto3" json:"signed_proof_commit,omitempty"`
+	ServiceQuote        []byte `protobuf:"bytes,14,opt,name=service_quote,json=serviceQuote,proto3" json:"service_quote,omitempty"`
 }
 
 type SetTargetPaidResp struct {
-	Success          bool   `protobuf:"varint,1,opt,name=success,proto3" json:"success"`
-	Status           string `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
-	Name             string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	OwnerPubkeyHex   string `protobuf:"bytes,4,opt,name=owner_pubkey_hex,json=ownerPubkeyHex,proto3" json:"owner_pubkey_hex,omitempty"`
-	TargetPubkeyHex  string `protobuf:"bytes,5,opt,name=target_pubkey_hex,json=targetPubkeyHex,proto3" json:"target_pubkey_hex,omitempty"`
-	ExpireAtUnix     int64  `protobuf:"varint,6,opt,name=expire_at_unix,json=expireAtUnix,proto3" json:"expire_at_unix,omitempty"`
-	ChargedAmount    uint64 `protobuf:"varint,7,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
-	UpdatedTxID      string `protobuf:"bytes,8,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
-	SignedRecordJSON []byte `protobuf:"bytes,9,opt,name=signed_record_json,json=signedRecordJson,proto3" json:"signed_record_json,omitempty"`
-	Error            string `protobuf:"bytes,10,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	Success           bool   `protobuf:"varint,1,opt,name=success,proto3" json:"success"`
+	Status            string `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
+	Name              string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	OwnerPubkeyHex    string `protobuf:"bytes,4,opt,name=owner_pubkey_hex,json=ownerPubkeyHex,proto3" json:"owner_pubkey_hex,omitempty"`
+	TargetPubkeyHex   string `protobuf:"bytes,5,opt,name=target_pubkey_hex,json=targetPubkeyHex,proto3" json:"target_pubkey_hex,omitempty"`
+	ExpireAtUnix      int64  `protobuf:"varint,6,opt,name=expire_at_unix,json=expireAtUnix,proto3" json:"expire_at_unix,omitempty"`
+	ChargedAmount     uint64 `protobuf:"varint,7,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
+	UpdatedTxID       string `protobuf:"bytes,8,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
+	SignedRecordJSON  []byte `protobuf:"bytes,9,opt,name=signed_record_json,json=signedRecordJson,proto3" json:"signed_record_json,omitempty"`
+	Error             string `protobuf:"bytes,10,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	MergedCurrentTx   []byte `protobuf:"bytes,11,opt,name=merged_current_tx,json=mergedCurrentTx,proto3" json:"merged_current_tx,omitempty"`
+	ProofStatePayload []byte `protobuf:"bytes,12,opt,name=proof_state_payload,json=proofStatePayload,proto3" json:"proof_state_payload,omitempty"`
+	ServiceReceipt    []byte `protobuf:"bytes,13,opt,name=service_receipt,json=serviceReceipt,proto3" json:"service_receipt,omitempty"`
 }

@@ -23,13 +23,24 @@ type NodeReachabilityAnnouncement struct {
 	Signature       []byte
 }
 
-type nodeReachabilitySignPayload struct {
-	NodePubkeyHex   string   `json:"node_pubkey_hex"`
-	Multiaddrs      []string `json:"multiaddrs"`
-	HeadHeight      uint64   `json:"head_height"`
-	Seq             uint64   `json:"seq"`
-	PublishedAtUnix int64    `json:"published_at_unix"`
-	ExpiresAtUnix   int64    `json:"expires_at_unix"`
+func (ann NodeReachabilityAnnouncement) Normalize() NodeReachabilityAnnouncement {
+	ann.NodePubkeyHex = NormalizeClientIDLoose(ann.NodePubkeyHex)
+	ann.Multiaddrs = normalizeStringList(ann.Multiaddrs)
+	ann.Signature = append([]byte(nil), ann.Signature...)
+	return ann
+}
+
+func (ann NodeReachabilityAnnouncement) UnsignedArray() []any {
+	ann = ann.Normalize()
+	return []any{
+		"bsv8-node-reachability-announcement-v1",
+		ann.NodePubkeyHex,
+		ann.Multiaddrs,
+		ann.HeadHeight,
+		ann.Seq,
+		ann.PublishedAtUnix,
+		ann.ExpiresAtUnix,
+	}
 }
 
 // PeerIDFromClientID 把系统内唯一 ID（压缩公钥 hex）映射到 libp2p transport 语境里的 peer.ID。
@@ -118,19 +129,80 @@ func BuildNodeReachabilitySignPayload(nodePubkeyHex string, addrs []string, head
 	if expiresAtUnix <= publishedAtUnix {
 		return nil, fmt.Errorf("expires_at_unix must be greater than published_at_unix")
 	}
-	raw, err := json.Marshal(nodeReachabilitySignPayload{
+	raw, err := json.Marshal(NodeReachabilityAnnouncement{
 		NodePubkeyHex:   nodePubkeyHex,
 		Multiaddrs:      addrs,
 		HeadHeight:      headHeight,
 		Seq:             seq,
 		PublishedAtUnix: publishedAtUnix,
 		ExpiresAtUnix:   expiresAtUnix,
-	})
+	}.UnsignedArray())
 	if err != nil {
 		return nil, fmt.Errorf("marshal reachability payload: %w", err)
 	}
 	sum := sha256.Sum256(raw)
 	return sum[:], nil
+}
+
+func MarshalSignedNodeReachabilityAnnouncement(ann NodeReachabilityAnnouncement) ([]byte, error) {
+	ann = ann.Normalize()
+	if err := VerifyNodeReachabilityAnnouncement(ann); err != nil {
+		return nil, err
+	}
+	return json.Marshal([]any{ann.UnsignedArray(), hex.EncodeToString(ann.Signature)})
+}
+
+func UnmarshalSignedNodeReachabilityAnnouncement(raw []byte) (NodeReachabilityAnnouncement, error) {
+	var parts []json.RawMessage
+	if err := json.Unmarshal(raw, &parts); err != nil {
+		return NodeReachabilityAnnouncement{}, fmt.Errorf("decode signed announcement: %w", err)
+	}
+	if len(parts) != 2 {
+		return NodeReachabilityAnnouncement{}, fmt.Errorf("signed announcement fields mismatch")
+	}
+	var fields []json.RawMessage
+	if err := json.Unmarshal(parts[0], &fields); err != nil {
+		return NodeReachabilityAnnouncement{}, err
+	}
+	if len(fields) != 7 {
+		return NodeReachabilityAnnouncement{}, fmt.Errorf("announcement unsigned fields mismatch")
+	}
+	var ann NodeReachabilityAnnouncement
+	var version string
+	if err := json.Unmarshal(fields[0], &version); err != nil {
+		return NodeReachabilityAnnouncement{}, err
+	}
+	if version != "bsv8-node-reachability-announcement-v1" {
+		return NodeReachabilityAnnouncement{}, fmt.Errorf("announcement version mismatch")
+	}
+	if err := json.Unmarshal(fields[1], &ann.NodePubkeyHex); err != nil {
+		return NodeReachabilityAnnouncement{}, err
+	}
+	if err := json.Unmarshal(fields[2], &ann.Multiaddrs); err != nil {
+		return NodeReachabilityAnnouncement{}, err
+	}
+	if err := json.Unmarshal(fields[3], &ann.HeadHeight); err != nil {
+		return NodeReachabilityAnnouncement{}, err
+	}
+	if err := json.Unmarshal(fields[4], &ann.Seq); err != nil {
+		return NodeReachabilityAnnouncement{}, err
+	}
+	if err := json.Unmarshal(fields[5], &ann.PublishedAtUnix); err != nil {
+		return NodeReachabilityAnnouncement{}, err
+	}
+	if err := json.Unmarshal(fields[6], &ann.ExpiresAtUnix); err != nil {
+		return NodeReachabilityAnnouncement{}, err
+	}
+	var signatureHex string
+	if err := json.Unmarshal(parts[1], &signatureHex); err != nil {
+		return NodeReachabilityAnnouncement{}, err
+	}
+	signature, err := hex.DecodeString(strings.TrimSpace(signatureHex))
+	if err != nil || len(signature) == 0 {
+		return NodeReachabilityAnnouncement{}, fmt.Errorf("announcement signature hex invalid")
+	}
+	ann.Signature = signature
+	return ann.Normalize(), nil
 }
 
 func VerifyNodeReachabilityAnnouncement(ann NodeReachabilityAnnouncement) error {

@@ -3,7 +3,7 @@ package nodesvc
 import (
 	"context"
 
-	"github.com/bsv8/BFTP/pkg/p2prpc"
+	"github.com/bsv8/BFTP/pkg/infra/pproto"
 	"github.com/libp2p/go-libp2p/core/host"
 )
 
