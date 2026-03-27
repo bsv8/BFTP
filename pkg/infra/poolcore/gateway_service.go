@@ -38,26 +38,15 @@ type GatewayService struct {
 
 	ServerPrivHex string
 	Params        GatewayParams
+	// BoundQuoteChargeReasons 由模块装配阶段注入。
+	// 费用池底座只持有“哪些 charge_reason 必须绑定 quote”的策略，不直接依赖具体业务模块。
+	BoundQuoteChargeReasons BoundQuoteChargeReasons
 
 	// IsMainnet 控制地址派生与签名脚本等网络相关参数。
 	// 说明：BSV 主网/测试网的地址格式不同；公私钥本身不变。
 	IsMainnet bool
 
 	mu sync.Mutex
-}
-
-func requiresBoundServiceQuote(chargeReason string) bool {
-	switch strings.TrimSpace(chargeReason) {
-	case QuoteServiceTypeListenCycle,
-		QuoteServiceTypeDemandPublish,
-		QuoteServiceTypeDemandPublishBatch,
-		QuoteServiceTypeLiveDemandPublish,
-		QuoteServiceTypeNodeReachabilityAnnounce,
-		QuoteServiceTypeNodeReachabilityQuery:
-		return true
-	default:
-		return false
-	}
 }
 
 const (
@@ -379,7 +368,7 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 		chargeReason = "unspecified"
 	}
 	var boundQuote payflow.ServiceQuote
-	if requiresBoundServiceQuote(chargeReason) {
+	if s.RequiresBoundServiceQuote(chargeReason) {
 		if len(req.ServiceQuote) == 0 {
 			return payReject(row.LifecycleState, "service_quote_required", "service quote required"), nil
 		}

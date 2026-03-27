@@ -10,12 +10,7 @@ import (
 )
 
 const (
-	QuoteServiceTypeListenCycle              = "listen_cycle_fee"
-	QuoteServiceTypeDemandPublish            = "demand_publish_fee"
-	QuoteServiceTypeDemandPublishBatch       = "demand_publish_batch_fee"
-	QuoteServiceTypeLiveDemandPublish        = "live_demand_publish_fee"
-	QuoteServiceTypeNodeReachabilityAnnounce = "node_reachability_announce_fee"
-	QuoteServiceTypeNodeReachabilityQuery    = "node_reachability_query_fee"
+	QuoteServiceTypeListenCycle = "listen_cycle_fee"
 
 	ServiceOfferPricingModeFixedPrice       = "fixed_price"
 	ServiceOfferPricingModeBudgetForService = "budget_for_service"

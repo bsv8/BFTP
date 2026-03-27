@@ -1,4 +1,4 @@
-package poolcore
+package broadcast
 
 import (
 	"encoding/hex"

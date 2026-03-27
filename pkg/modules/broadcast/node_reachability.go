@@ -1,4 +1,4 @@
-package poolcore
+package broadcast
 
 import (
 	"crypto/sha256"
@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/bsv8/BFTP/pkg/infra/poolcore"
 	"github.com/libp2p/go-libp2p/core/crypto"
-	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
 )
 
@@ -24,7 +24,7 @@ type NodeReachabilityAnnouncement struct {
 }
 
 func (ann NodeReachabilityAnnouncement) Normalize() NodeReachabilityAnnouncement {
-	ann.NodePubkeyHex = NormalizeClientIDLoose(ann.NodePubkeyHex)
+	ann.NodePubkeyHex = poolcore.NormalizeClientIDLoose(ann.NodePubkeyHex)
 	ann.Multiaddrs = normalizeStringList(ann.Multiaddrs)
 	ann.Signature = append([]byte(nil), ann.Signature...)
 	return ann
@@ -43,39 +43,17 @@ func (ann NodeReachabilityAnnouncement) UnsignedArray() []any {
 	}
 }
 
-// PeerIDFromClientID 把系统内唯一 ID（压缩公钥 hex）映射到 libp2p transport 语境里的 peer.ID。
-// 设计约束：peer.ID 只用于 libp2p 内部连接，不进入系统业务层主语义。
-func PeerIDFromClientID(clientID string) (peer.ID, error) {
-	pubHex, err := NormalizeClientIDStrict(clientID)
-	if err != nil {
-		return "", err
-	}
-	b, err := hex.DecodeString(pubHex)
-	if err != nil {
-		return "", fmt.Errorf("decode client_pubkey_hex: %w", err)
-	}
-	pub, err := crypto.UnmarshalSecp256k1PublicKey(b)
-	if err != nil {
-		return "", fmt.Errorf("unmarshal client pubkey: %w", err)
-	}
-	pid, err := peer.IDFromPublicKey(pub)
-	if err != nil {
-		return "", fmt.Errorf("derive peer id: %w", err)
-	}
-	return pid, nil
-}
-
 // NormalizeNodeReachabilityAddrs 统一地址声明里的 multiaddrs。
 // 设计说明：
-// - 节点声明的是“我当前在哪些地址上可达”，不是网关帮它猜的地址；
+// - 节点声明的是“我当前在哪些地址上可达”，不是 gateway 帮它猜的地址；
 // - 所有地址都必须带上与 node_pubkey_hex 一致的 /p2p/<peerID>，否则目录缓存会混淆主体；
-// - 排序与去重放在这里统一做，避免 client/gateway 分别实现后结果不一致。
+// - 排序与去重在这里统一做，避免 client / gateway 分别实现后结果不一致。
 func NormalizeNodeReachabilityAddrs(nodePubkeyHex string, addrs []string) ([]string, error) {
-	nodePubkeyHex, err := NormalizeClientIDStrict(nodePubkeyHex)
+	nodePubkeyHex, err := poolcore.NormalizeClientIDStrict(nodePubkeyHex)
 	if err != nil {
 		return nil, err
 	}
-	expectPID, err := PeerIDFromClientID(nodePubkeyHex)
+	expectPID, err := poolcore.PeerIDFromClientID(nodePubkeyHex)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +90,7 @@ func NormalizeNodeReachabilityAddrs(nodePubkeyHex string, addrs []string) ([]str
 }
 
 func BuildNodeReachabilitySignPayload(nodePubkeyHex string, addrs []string, headHeight uint64, seq uint64, publishedAtUnix int64, expiresAtUnix int64) ([]byte, error) {
-	nodePubkeyHex, err := NormalizeClientIDStrict(nodePubkeyHex)
+	nodePubkeyHex, err := poolcore.NormalizeClientIDStrict(nodePubkeyHex)
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +184,7 @@ func UnmarshalSignedNodeReachabilityAnnouncement(raw []byte) (NodeReachabilityAn
 }
 
 func VerifyNodeReachabilityAnnouncement(ann NodeReachabilityAnnouncement) error {
-	nodePubkeyHex, err := NormalizeClientIDStrict(ann.NodePubkeyHex)
+	nodePubkeyHex, err := poolcore.NormalizeClientIDStrict(ann.NodePubkeyHex)
 	if err != nil {
 		return err
 	}
