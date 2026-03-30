@@ -33,10 +33,10 @@ func serviceQuoteDigest(v ServiceQuote) ([]byte, error) {
 
 func SignServiceQuote(v ServiceQuote, priv *ec.PrivateKey) (ServiceQuote, error) {
 	if priv == nil {
-		return ServiceQuote{}, fmt.Errorf("gateway private key required")
+		return ServiceQuote{}, fmt.Errorf("service node private key required")
 	}
 	v = v.Normalize()
-	v.GatewaySignatureHex = ""
+	v.SignatureHex = ""
 	digest, err := serviceQuoteDigest(v)
 	if err != nil {
 		return ServiceQuote{}, err
@@ -45,19 +45,19 @@ func SignServiceQuote(v ServiceQuote, priv *ec.PrivateKey) (ServiceQuote, error)
 	if err != nil {
 		return ServiceQuote{}, fmt.Errorf("sign service quote: %w", err)
 	}
-	v.GatewaySignatureHex = hex.EncodeToString(sig.Serialize())
+	v.SignatureHex = hex.EncodeToString(sig.Serialize())
 	return v.Normalize(), nil
 }
 
 func VerifyServiceQuoteSignature(v ServiceQuote, pub *ec.PublicKey) error {
 	if pub == nil {
-		return fmt.Errorf("gateway public key required")
+		return fmt.Errorf("service node public key required")
 	}
 	v = v.Normalize()
 	if err := v.Validate(); err != nil {
 		return err
 	}
-	sigRaw, err := hex.DecodeString(v.GatewaySignatureHex)
+	sigRaw, err := hex.DecodeString(v.SignatureHex)
 	if err != nil {
 		return fmt.Errorf("decode service quote signature: %w", err)
 	}
@@ -66,7 +66,7 @@ func VerifyServiceQuoteSignature(v ServiceQuote, pub *ec.PublicKey) error {
 		return fmt.Errorf("parse service quote signature: %w", err)
 	}
 	unsigned := v
-	unsigned.GatewaySignatureHex = ""
+	unsigned.SignatureHex = ""
 	digest, err := serviceQuoteDigest(unsigned)
 	if err != nil {
 		return err
@@ -185,10 +185,10 @@ func serviceReceiptDigest(v ServiceReceipt) ([]byte, error) {
 
 func SignServiceReceipt(v ServiceReceipt, priv *ec.PrivateKey) (ServiceReceipt, error) {
 	if priv == nil {
-		return ServiceReceipt{}, fmt.Errorf("gateway private key required")
+		return ServiceReceipt{}, fmt.Errorf("service node private key required")
 	}
 	v = v.Normalize()
-	v.GatewaySignatureHex = ""
+	v.SignatureHex = ""
 	digest, err := serviceReceiptDigest(v)
 	if err != nil {
 		return ServiceReceipt{}, err
@@ -197,19 +197,19 @@ func SignServiceReceipt(v ServiceReceipt, priv *ec.PrivateKey) (ServiceReceipt, 
 	if err != nil {
 		return ServiceReceipt{}, fmt.Errorf("sign service receipt: %w", err)
 	}
-	v.GatewaySignatureHex = hex.EncodeToString(sig.Serialize())
+	v.SignatureHex = hex.EncodeToString(sig.Serialize())
 	return v.Normalize(), nil
 }
 
 func VerifyServiceReceiptSignature(v ServiceReceipt, pub *ec.PublicKey) error {
 	if pub == nil {
-		return fmt.Errorf("gateway public key required")
+		return fmt.Errorf("service node public key required")
 	}
 	v = v.Normalize()
 	if err := v.Validate(); err != nil {
 		return err
 	}
-	sigRaw, err := hex.DecodeString(v.GatewaySignatureHex)
+	sigRaw, err := hex.DecodeString(v.SignatureHex)
 	if err != nil {
 		return fmt.Errorf("decode service receipt signature: %w", err)
 	}
@@ -218,7 +218,7 @@ func VerifyServiceReceiptSignature(v ServiceReceipt, pub *ec.PublicKey) error {
 		return fmt.Errorf("parse service receipt signature: %w", err)
 	}
 	unsigned := v
-	unsigned.GatewaySignatureHex = ""
+	unsigned.SignatureHex = ""
 	digest, err := serviceReceiptDigest(unsigned)
 	if err != nil {
 		return err

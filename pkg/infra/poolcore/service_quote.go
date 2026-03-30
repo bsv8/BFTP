@@ -1,6 +1,7 @@
 package poolcore
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -19,24 +20,17 @@ const (
 )
 
 type ServiceQuoteBuildInput struct {
-	Offer                      payflow.ServiceOffer
-	ChargeReason               string
-	ChargeAmountSatoshi        uint64
-	GrantedServiceDeadlineUnix int64
-	GrantedDurationSeconds     uint32
-	QuoteTTLSeconds            uint32
+	Offer               payflow.ServiceOffer
+	ChargeAmountSatoshi uint64
+	QuoteTTLSeconds     uint32
 }
 
-func HashServiceParamsPayload(raw []byte) string {
-	return payflow.HashPayloadBytes(raw)
-}
-
-func ParseAndVerifyServiceQuote(raw []byte, gatewayPub *ec.PublicKey) (payflow.ServiceQuote, string, error) {
+func ParseAndVerifyServiceQuote(raw []byte, serviceNodePub *ec.PublicKey) (payflow.ServiceQuote, string, error) {
 	quote, err := payflow.UnmarshalServiceQuote(raw)
 	if err != nil {
 		return payflow.ServiceQuote{}, "", err
 	}
-	if err := payflow.VerifyServiceQuoteSignature(quote, gatewayPub); err != nil {
+	if err := payflow.VerifyServiceQuoteSignature(quote, serviceNodePub); err != nil {
 		return payflow.ServiceQuote{}, "", err
 	}
 	hash, err := payflow.HashServiceQuote(quote)
@@ -46,41 +40,56 @@ func ParseAndVerifyServiceQuote(raw []byte, gatewayPub *ec.PublicKey) (payflow.S
 	return quote, hash, nil
 }
 
-func ValidateServiceQuoteBinding(quote payflow.ServiceQuote, expectedGatewayPubkeyHex string, expectedClientID string, expectedSpendTxID string, expectedServiceType string, serviceParamsPayload []byte, nowUnix int64) error {
-	if expectedGatewayPubkeyHex != "" && !strings.EqualFold(strings.TrimSpace(quote.GatewayPubkeyHex), strings.TrimSpace(expectedGatewayPubkeyHex)) {
-		return fmt.Errorf("service quote gateway_pubkey_hex mismatch")
+func HashServiceParamsPayload(raw []byte) string {
+	return payflow.HashPayloadBytes(raw)
+}
+
+func NormalizeServiceOfferPricingMode(raw string) string {
+	return strings.TrimSpace(raw)
+}
+
+func ServiceOfferFromRow(row ServiceOfferRow) payflow.ServiceOffer {
+	return payflow.ServiceOffer{
+		ServiceType:          strings.TrimSpace(row.ServiceType),
+		ServiceNodePubkeyHex: strings.ToLower(strings.TrimSpace(row.ServiceNodePubkeyHex)),
+		ClientPubkeyHex:      strings.ToLower(strings.TrimSpace(row.ClientPubkeyHex)),
+		RequestParams:        append([]byte(nil), row.RequestParams...),
+		CreatedAtUnix:        row.CreatedAtUnix,
+	}.Normalize()
+}
+
+func ValidateServiceQuoteBinding(quote payflow.ServiceQuote, offer payflow.ServiceOffer, expectedServiceNodePubkeyHex string, expectedClientID string, expectedServiceType string, requestParamsPayload []byte, nowUnix int64) error {
+	offer = offer.Normalize()
+	if err := offer.Validate(); err != nil {
+		return err
 	}
-	if expectedClientID != "" && !strings.EqualFold(strings.TrimSpace(quote.ClientPubkeyHex), NormalizeClientIDLoose(expectedClientID)) {
-		return fmt.Errorf("service quote client_pubkey_hex mismatch")
+	if !strings.EqualFold(strings.TrimSpace(quote.OfferHash), mustHashServiceOffer(offer)) {
+		return fmt.Errorf("service quote offer_hash mismatch")
 	}
-	if expectedSpendTxID != "" && !strings.EqualFold(strings.TrimSpace(quote.SpendTxID), strings.TrimSpace(expectedSpendTxID)) {
-		return fmt.Errorf("service quote spend_txid mismatch")
+	if expectedServiceNodePubkeyHex != "" && !strings.EqualFold(strings.TrimSpace(offer.ServiceNodePubkeyHex), strings.TrimSpace(expectedServiceNodePubkeyHex)) {
+		return fmt.Errorf("service offer service_node_pubkey_hex mismatch")
 	}
-	if expectedServiceType != "" && !strings.EqualFold(strings.TrimSpace(quote.ServiceType), strings.TrimSpace(expectedServiceType)) {
-		return fmt.Errorf("service quote service_type mismatch")
+	if expectedClientID != "" && !strings.EqualFold(strings.TrimSpace(offer.ClientPubkeyHex), NormalizeClientIDLoose(expectedClientID)) {
+		return fmt.Errorf("service offer client_pubkey_hex mismatch")
 	}
-	if serviceParamsPayload != nil {
-		if !strings.EqualFold(strings.TrimSpace(quote.ServiceParamsHash), HashServiceParamsPayload(serviceParamsPayload)) {
-			return fmt.Errorf("service quote service_params_hash mismatch")
-		}
+	if expectedServiceType != "" && !strings.EqualFold(strings.TrimSpace(offer.ServiceType), strings.TrimSpace(expectedServiceType)) {
+		return fmt.Errorf("service offer service_type mismatch")
 	}
-	if nowUnix > 0 && quote.QuoteExpiresAtUnix > 0 && nowUnix > quote.QuoteExpiresAtUnix {
+	if requestParamsPayload != nil && string(offer.RequestParams) != string(requestParamsPayload) {
+		return fmt.Errorf("service offer request_params mismatch")
+	}
+	if nowUnix > 0 && quote.ExpiresAtUnix > 0 && nowUnix > quote.ExpiresAtUnix {
 		return fmt.Errorf("service quote expired")
 	}
 	return nil
 }
 
-func NormalizeServiceOfferPricingMode(raw string) string {
-	mode := strings.TrimSpace(raw)
-	if mode == "" {
+func mustHashServiceOffer(offer payflow.ServiceOffer) string {
+	hash, err := payflow.HashServiceOffer(offer)
+	if err != nil {
 		return ""
 	}
-	switch mode {
-	case ServiceOfferPricingModeFixedPrice, ServiceOfferPricingModeBudgetForService:
-		return mode
-	default:
-		return mode
-	}
+	return hash
 }
 
 func (s *GatewayService) BuildServiceQuote(input ServiceQuoteBuildInput) (payflow.ServiceQuote, []byte, string, error) {
@@ -96,52 +105,12 @@ func (s *GatewayService) BuildServiceQuote(input ServiceQuoteBuildInput) (payflo
 	if input.ChargeAmountSatoshi == 0 {
 		return payflow.ServiceQuote{}, nil, "", fmt.Errorf("charge_amount_satoshi required")
 	}
-	row, found, err := LoadSessionBySpendTxID(s.DB, offer.SpendTxID)
+	serverActor, err := BuildActor("service_quote", strings.TrimSpace(s.ServerPrivHex), s.IsMainnet)
 	if err != nil {
 		return payflow.ServiceQuote{}, nil, "", err
 	}
-	if !found {
-		return payflow.ServiceQuote{}, nil, "", fmt.Errorf("fee pool session not found")
-	}
-	if !strings.EqualFold(strings.TrimSpace(row.ClientID), strings.TrimSpace(offer.ClientPubkeyHex)) {
-		return payflow.ServiceQuote{}, nil, "", fmt.Errorf("service offer client_pubkey_hex mismatch")
-	}
-	if err := ensureActivePoolGate(row); err != nil {
-		return payflow.ServiceQuote{}, nil, "", err
-	}
-	if !s.isUniqueActiveSession(row.ClientID, row.SpendTxID) {
-		return payflow.ServiceQuote{}, nil, "", fmt.Errorf("client has another active pool")
-	}
-	_, phase, payability, _, err := s.queryPhase(row)
-	if err != nil {
-		return payflow.ServiceQuote{}, nil, "", err
-	}
-	if payability != payabilityPayable {
-		if phase == phaseNearExpiry {
-			return payflow.ServiceQuote{}, nil, "", fmt.Errorf("fee pool near expiry")
-		}
-		return payflow.ServiceQuote{}, nil, "", fmt.Errorf("fee pool should submit")
-	}
-	nextServerAmount := row.ServerAmountSat + input.ChargeAmountSatoshi
-	if nextServerAmount+row.SpendTxFeeSat > row.PoolAmountSat {
-		return payflow.ServiceQuote{}, nil, "", fmt.Errorf("pool cannot cover charge")
-	}
-	serverActor, err := BuildActor("gateway", strings.TrimSpace(s.ServerPrivHex), s.IsMainnet)
-	if err != nil {
-		return payflow.ServiceQuote{}, nil, "", err
-	}
-	if !strings.EqualFold(strings.TrimSpace(offer.GatewayPubkeyHex), strings.TrimSpace(serverActor.PubHex)) {
-		return payflow.ServiceQuote{}, nil, "", fmt.Errorf("service offer gateway_pubkey_hex mismatch")
-	}
-	offer.PricingMode = NormalizeServiceOfferPricingMode(offer.PricingMode)
-	switch offer.PricingMode {
-	case ServiceOfferPricingModeFixedPrice:
-	case ServiceOfferPricingModeBudgetForService:
-		if offer.ProposedPaymentSatoshi == 0 {
-			return payflow.ServiceQuote{}, nil, "", fmt.Errorf("service offer proposed_payment_satoshi required")
-		}
-	default:
-		return payflow.ServiceQuote{}, nil, "", fmt.Errorf("service offer pricing_mode unsupported")
+	if !strings.EqualFold(strings.TrimSpace(offer.ServiceNodePubkeyHex), strings.TrimSpace(serverActor.PubHex)) {
+		return payflow.ServiceQuote{}, nil, "", fmt.Errorf("service offer service_node_pubkey_hex mismatch")
 	}
 	offerHash, err := payflow.HashServiceOffer(offer)
 	if err != nil {
@@ -153,36 +122,43 @@ func (s *GatewayService) BuildServiceQuote(input ServiceQuoteBuildInput) (payflo
 		ttlSeconds = defaultServiceQuoteTTLSeconds
 	}
 	signed, err := payflow.SignServiceQuote(payflow.ServiceQuote{
-		OfferHash:                  offerHash,
-		Domain:                     offer.Domain,
-		ServiceType:                offer.ServiceType,
-		ChargeReason:               strings.TrimSpace(input.ChargeReason),
-		Target:                     offer.Target,
-		GatewayPubkeyHex:           strings.ToLower(strings.TrimSpace(serverActor.PubHex)),
-		ClientPubkeyHex:            strings.ToLower(strings.TrimSpace(row.ClientID)),
-		SpendTxID:                  strings.TrimSpace(row.SpendTxID),
-		ServiceParamsHash:          offer.ServiceParamsHash,
-		SequenceNumber:             row.Sequence + 1,
-		ServerAmountBefore:         row.ServerAmountSat,
-		ChargeAmountSatoshi:        input.ChargeAmountSatoshi,
-		ServerAmountAfter:          nextServerAmount,
-		GrantedServiceDeadlineUnix: input.GrantedServiceDeadlineUnix,
-		GrantedDurationSeconds:     input.GrantedDurationSeconds,
-		QuoteExpiresAtUnix:         nowUnix + int64(ttlSeconds),
-		IssuedAtUnix:               nowUnix,
+		OfferHash:           offerHash,
+		ChargeAmountSatoshi: input.ChargeAmountSatoshi,
+		ExpiresAtUnix:       nowUnix + int64(ttlSeconds),
 	}, serverActor.PrivKey)
 	if err != nil {
+		return payflow.ServiceQuote{}, nil, "", err
+	}
+	if err := UpsertServiceOffer(s.DB, ServiceOfferRow{
+		OfferHash:              offerHash,
+		ServiceType:            offer.ServiceType,
+		ServiceNodePubkeyHex:   offer.ServiceNodePubkeyHex,
+		ClientPubkeyHex:        offer.ClientPubkeyHex,
+		RequestParams:          offer.RequestParams,
+		CreatedAtUnix:          offer.CreatedAtUnix,
+		LastQuotedAtUnix:       nowUnix,
+		LastQuotedAmountSat:    input.ChargeAmountSatoshi,
+		LastQuoteExpiresAtUnix: signed.ExpiresAtUnix,
+	}); err != nil {
 		return payflow.ServiceQuote{}, nil, "", err
 	}
 	raw, err := payflow.MarshalServiceQuote(signed)
 	if err != nil {
 		return payflow.ServiceQuote{}, nil, "", err
 	}
-	status := "accepted"
-	if offer.PricingMode == ServiceOfferPricingModeBudgetForService && offer.ProposedPaymentSatoshi != input.ChargeAmountSatoshi {
-		status = "countered"
+	return signed, raw, "accepted", nil
+}
+
+func LoadOfferByHash(db *sql.DB, offerHash string) (payflow.ServiceOffer, bool, error) {
+	row, found, err := LoadServiceOfferByHash(db, offerHash)
+	if err != nil {
+		return payflow.ServiceOffer{}, false, err
 	}
-	return signed, raw, status, nil
+	if !found {
+		return payflow.ServiceOffer{}, false, nil
+	}
+	offer := ServiceOfferFromRow(row)
+	return offer, true, offer.Validate()
 }
 
 func ListenOfferBudgetToDurationSeconds(proposedPayment uint64, minimumPayment uint64, minimumDurationSeconds uint32) (uint64, error) {

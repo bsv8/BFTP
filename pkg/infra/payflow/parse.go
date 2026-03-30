@@ -11,41 +11,26 @@ func UnmarshalServiceOffer(raw []byte) (ServiceOffer, error) {
 	if err := json.Unmarshal(raw, &parts); err != nil {
 		return ServiceOffer{}, fmt.Errorf("decode service offer: %w", err)
 	}
-	if len(parts) != 11 {
+	if len(parts) != 6 {
 		return ServiceOffer{}, fmt.Errorf("service offer fields mismatch")
 	}
 	var out ServiceOffer
 	if err := json.Unmarshal(parts[0], &out.Version); err != nil {
 		return ServiceOffer{}, err
 	}
-	if err := json.Unmarshal(parts[1], &out.Domain); err != nil {
+	if err := json.Unmarshal(parts[1], &out.ServiceType); err != nil {
 		return ServiceOffer{}, err
 	}
-	if err := json.Unmarshal(parts[2], &out.ServiceType); err != nil {
+	if err := json.Unmarshal(parts[2], &out.ServiceNodePubkeyHex); err != nil {
 		return ServiceOffer{}, err
 	}
-	if err := json.Unmarshal(parts[3], &out.Target); err != nil {
+	if err := json.Unmarshal(parts[3], &out.ClientPubkeyHex); err != nil {
 		return ServiceOffer{}, err
 	}
-	if err := json.Unmarshal(parts[4], &out.GatewayPubkeyHex); err != nil {
+	if err := json.Unmarshal(parts[4], &out.RequestParams); err != nil {
 		return ServiceOffer{}, err
 	}
-	if err := json.Unmarshal(parts[5], &out.ClientPubkeyHex); err != nil {
-		return ServiceOffer{}, err
-	}
-	if err := json.Unmarshal(parts[6], &out.SpendTxID); err != nil {
-		return ServiceOffer{}, err
-	}
-	if err := json.Unmarshal(parts[7], &out.ServiceParamsHash); err != nil {
-		return ServiceOffer{}, err
-	}
-	if err := json.Unmarshal(parts[8], &out.PricingMode); err != nil {
-		return ServiceOffer{}, err
-	}
-	if err := json.Unmarshal(parts[9], &out.ProposedPaymentSatoshi); err != nil {
-		return ServiceOffer{}, err
-	}
-	if err := json.Unmarshal(parts[10], &out.CreatedAtUnix); err != nil {
+	if err := json.Unmarshal(parts[5], &out.CreatedAtUnix); err != nil {
 		return ServiceOffer{}, err
 	}
 	return out.Normalize(), out.Validate()
@@ -56,7 +41,7 @@ func UnmarshalServiceQuote(raw []byte) (ServiceQuote, error) {
 	if err != nil {
 		return ServiceQuote{}, fmt.Errorf("decode service quote: %w", err)
 	}
-	if len(fields) != 18 {
+	if len(fields) != 4 {
 		return ServiceQuote{}, fmt.Errorf("service quote fields mismatch")
 	}
 	var out ServiceQuote
@@ -66,55 +51,13 @@ func UnmarshalServiceQuote(raw []byte) (ServiceQuote, error) {
 	if err := json.Unmarshal(fields[1], &out.OfferHash); err != nil {
 		return ServiceQuote{}, err
 	}
-	if err := json.Unmarshal(fields[2], &out.Domain); err != nil {
+	if err := json.Unmarshal(fields[2], &out.ChargeAmountSatoshi); err != nil {
 		return ServiceQuote{}, err
 	}
-	if err := json.Unmarshal(fields[3], &out.ServiceType); err != nil {
+	if err := json.Unmarshal(fields[3], &out.ExpiresAtUnix); err != nil {
 		return ServiceQuote{}, err
 	}
-	if err := json.Unmarshal(fields[4], &out.ChargeReason); err != nil {
-		return ServiceQuote{}, err
-	}
-	if err := json.Unmarshal(fields[5], &out.Target); err != nil {
-		return ServiceQuote{}, err
-	}
-	if err := json.Unmarshal(fields[6], &out.GatewayPubkeyHex); err != nil {
-		return ServiceQuote{}, err
-	}
-	if err := json.Unmarshal(fields[7], &out.ClientPubkeyHex); err != nil {
-		return ServiceQuote{}, err
-	}
-	if err := json.Unmarshal(fields[8], &out.SpendTxID); err != nil {
-		return ServiceQuote{}, err
-	}
-	if err := json.Unmarshal(fields[9], &out.ServiceParamsHash); err != nil {
-		return ServiceQuote{}, err
-	}
-	if err := json.Unmarshal(fields[10], &out.SequenceNumber); err != nil {
-		return ServiceQuote{}, err
-	}
-	if err := json.Unmarshal(fields[11], &out.ServerAmountBefore); err != nil {
-		return ServiceQuote{}, err
-	}
-	if err := json.Unmarshal(fields[12], &out.ChargeAmountSatoshi); err != nil {
-		return ServiceQuote{}, err
-	}
-	if err := json.Unmarshal(fields[13], &out.ServerAmountAfter); err != nil {
-		return ServiceQuote{}, err
-	}
-	if err := json.Unmarshal(fields[14], &out.GrantedServiceDeadlineUnix); err != nil {
-		return ServiceQuote{}, err
-	}
-	if err := json.Unmarshal(fields[15], &out.GrantedDurationSeconds); err != nil {
-		return ServiceQuote{}, err
-	}
-	if err := json.Unmarshal(fields[16], &out.QuoteExpiresAtUnix); err != nil {
-		return ServiceQuote{}, err
-	}
-	if err := json.Unmarshal(fields[17], &out.IssuedAtUnix); err != nil {
-		return ServiceQuote{}, err
-	}
-	out.GatewaySignatureHex = signatureHex
+	out.SignatureHex = signatureHex
 	return out.Normalize(), out.Validate()
 }
 
@@ -314,40 +257,25 @@ func UnmarshalServiceReceipt(raw []byte) (ServiceReceipt, error) {
 	if err != nil {
 		return ServiceReceipt{}, fmt.Errorf("decode service receipt: %w", err)
 	}
-	if len(fields) != 10 {
+	if len(fields) != 5 {
 		return ServiceReceipt{}, fmt.Errorf("service receipt fields mismatch")
 	}
 	var out ServiceReceipt
 	if err := json.Unmarshal(fields[0], &out.Version); err != nil {
 		return ServiceReceipt{}, err
 	}
-	if err := json.Unmarshal(fields[1], &out.ServiceType); err != nil {
+	if err := json.Unmarshal(fields[1], &out.OfferHash); err != nil {
 		return ServiceReceipt{}, err
 	}
-	if err := json.Unmarshal(fields[2], &out.GatewayPubkeyHex); err != nil {
+	if err := json.Unmarshal(fields[2], &out.ServiceType); err != nil {
 		return ServiceReceipt{}, err
 	}
-	if err := json.Unmarshal(fields[3], &out.ClientPubkeyHex); err != nil {
+	if err := json.Unmarshal(fields[3], &out.ResultHash); err != nil {
 		return ServiceReceipt{}, err
 	}
-	if err := json.Unmarshal(fields[4], &out.SpendTxID); err != nil {
+	if err := json.Unmarshal(fields[4], &out.IssuedAtUnix); err != nil {
 		return ServiceReceipt{}, err
 	}
-	if err := json.Unmarshal(fields[5], &out.SequenceNumber); err != nil {
-		return ServiceReceipt{}, err
-	}
-	if err := json.Unmarshal(fields[6], &out.AcceptedChargeHash); err != nil {
-		return ServiceReceipt{}, err
-	}
-	if err := json.Unmarshal(fields[7], &out.ResultCode); err != nil {
-		return ServiceReceipt{}, err
-	}
-	if err := json.Unmarshal(fields[8], &out.ResultPayloadHash); err != nil {
-		return ServiceReceipt{}, err
-	}
-	if err := json.Unmarshal(fields[9], &out.CompletedAtUnix); err != nil {
-		return ServiceReceipt{}, err
-	}
-	out.GatewaySignatureHex = signatureHex
+	out.SignatureHex = signatureHex
 	return out.Normalize(), out.Validate()
 }

@@ -104,24 +104,31 @@ func TestGatewayServicePayConfirmRejectListenQuoteAmountMismatch(t *testing.T) {
 		},
 	}
 	nowUnix := time.Now().Unix()
+	offer := payflow.ServiceOffer{
+		ServiceType:          QuoteServiceTypeListenCycle,
+		ServiceNodePubkeyHex: row.ServerBSVCompressedPubHex,
+		ClientPubkeyHex:      row.ClientBSVCompressedPubHex,
+		RequestParams:        []byte("params"),
+		CreatedAtUnix:        nowUnix,
+	}
+	offerHash, err := payflow.HashServiceOffer(offer)
+	if err != nil {
+		t.Fatalf("hash service offer failed: %v", err)
+	}
+	if err := UpsertServiceOffer(db, ServiceOfferRow{
+		OfferHash:            offerHash,
+		ServiceType:          offer.ServiceType,
+		ServiceNodePubkeyHex: offer.ServiceNodePubkeyHex,
+		ClientPubkeyHex:      offer.ClientPubkeyHex,
+		RequestParams:        offer.RequestParams,
+		CreatedAtUnix:        offer.CreatedAtUnix,
+	}); err != nil {
+		t.Fatalf("upsert service offer failed: %v", err)
+	}
 	signedQuote, err := payflow.SignServiceQuote(payflow.ServiceQuote{
-		OfferHash:                  payflow.HashPayloadBytes([]byte("offer")),
-		Domain:                     "bitcast-gateway",
-		ServiceType:                QuoteServiceTypeListenCycle,
-		ChargeReason:               QuoteServiceTypeListenCycle,
-		Target:                     "listen_cycle_fee",
-		GatewayPubkeyHex:           row.ServerBSVCompressedPubHex,
-		ClientPubkeyHex:            row.ClientBSVCompressedPubHex,
-		SpendTxID:                  row.SpendTxID,
-		ServiceParamsHash:          payflow.HashPayloadBytes([]byte("params")),
-		SequenceNumber:             2,
-		ServerAmountBefore:         row.ServerAmountSat,
-		ChargeAmountSatoshi:        50,
-		ServerAmountAfter:          row.ServerAmountSat + 50,
-		GrantedServiceDeadlineUnix: nowUnix + 120,
-		GrantedDurationSeconds:     60,
-		QuoteExpiresAtUnix:         nowUnix + 60,
-		IssuedAtUnix:               nowUnix,
+		OfferHash:           offerHash,
+		ChargeAmountSatoshi: 50,
+		ExpiresAtUnix:       nowUnix + 60,
 	}, serverPriv)
 	if err != nil {
 		t.Fatalf("sign service quote failed: %v", err)

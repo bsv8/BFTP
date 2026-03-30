@@ -38,11 +38,11 @@ type CallResp struct {
 	ContentType string `protobuf:"bytes,4,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
 	Body        []byte `protobuf:"bytes,5,opt,name=body,proto3" json:"body,omitempty"`
 
-	PaymentOptions       []*PaymentOption `protobuf:"bytes,6,rep,name=payment_options,json=paymentOptions,proto3" json:"payment_options,omitempty"`
+	PaymentSchemes       []*PaymentOption `protobuf:"bytes,6,rep,name=payment_schemes,json=paymentSchemes,proto3" json:"payment_schemes,omitempty"`
 	PaymentReceiptScheme string           `protobuf:"bytes,7,opt,name=payment_receipt_scheme,json=paymentReceiptScheme,proto3" json:"payment_receipt_scheme,omitempty"`
 	PaymentReceipt       []byte           `protobuf:"bytes,8,opt,name=payment_receipt,json=paymentReceipt,proto3" json:"payment_receipt,omitempty"`
-	PaymentQuoteScheme   string           `protobuf:"bytes,9,opt,name=payment_quote_scheme,json=paymentQuoteScheme,proto3" json:"payment_quote_scheme,omitempty"`
-	PaymentQuote         []byte           `protobuf:"bytes,10,opt,name=payment_quote,json=paymentQuote,proto3" json:"payment_quote,omitempty"`
+	ServiceQuote         []byte           `protobuf:"bytes,9,opt,name=service_quote,json=serviceQuote,proto3" json:"service_quote,omitempty"`
+	ServiceReceipt       []byte           `protobuf:"bytes,10,opt,name=service_receipt,json=serviceReceipt,proto3" json:"service_receipt,omitempty"`
 }
 
 type ResolveReq struct {
@@ -72,13 +72,20 @@ type FeePool2of2Payment struct {
 }
 
 type FeePool2of2Receipt struct {
-	ChargedAmountSatoshi uint64 `protobuf:"varint,1,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
-	UpdatedTxID          string `protobuf:"bytes,2,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
-	SequenceNumber       uint32 `protobuf:"varint,3,opt,name=sequence_number,json=sequenceNumber,proto3" json:"sequence_number,omitempty"`
-	ServerAmount         uint64 `protobuf:"varint,4,opt,name=server_amount,json=serverAmount,proto3" json:"server_amount,omitempty"`
-	MergedCurrentTx      []byte `protobuf:"bytes,5,opt,name=merged_current_tx,json=mergedCurrentTx,proto3" json:"merged_current_tx,omitempty"`
-	ProofStatePayload    []byte `protobuf:"bytes,6,opt,name=proof_state_payload,json=proofStatePayload,proto3" json:"proof_state_payload,omitempty"`
-	ServiceReceipt       []byte `protobuf:"bytes,7,opt,name=service_receipt,json=serviceReceipt,proto3" json:"service_receipt,omitempty"`
+	AcceptedAtUnix        int64  `protobuf:"varint,1,opt,name=accepted_at_unix,json=acceptedAtUnix,proto3" json:"accepted_at_unix,omitempty"`
+	ChargedAmountSatoshi  uint64 `protobuf:"varint,2,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
+	UpdatedTxID           string `protobuf:"bytes,3,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
+	MergedCurrentTx       []byte `protobuf:"bytes,4,opt,name=merged_current_tx,json=mergedCurrentTx,proto3" json:"merged_current_tx,omitempty"`
+	ProofStatePayload     []byte `protobuf:"bytes,5,opt,name=proof_state_payload,json=proofStatePayload,proto3" json:"proof_state_payload,omitempty"`
+}
+
+type ChainTxV1Payment struct {
+	RawTx []byte `protobuf:"bytes,1,opt,name=raw_tx,json=rawTx,proto3" json:"raw_tx,omitempty"`
+}
+
+type ChainTxV1Receipt struct {
+	AcceptedAtUnix int64  `protobuf:"varint,1,opt,name=accepted_at_unix,json=acceptedAtUnix,proto3" json:"accepted_at_unix,omitempty"`
+	PaymentTxID    string `protobuf:"bytes,2,opt,name=payment_txid,json=paymentTxid,proto3" json:"payment_txid,omitempty"`
 }
 
 type CapabilityItem struct {

@@ -20,12 +20,11 @@ func Spec() caps.ModuleSpec {
 		},
 		Routes: []string{
 			ncall.RoutePoolV1Info,
-			ncall.RoutePoolV1ServiceQuote,
 			ncall.RoutePoolV1Create,
 			ncall.RoutePoolV1BaseTx,
 			ncall.RoutePoolV1PayConfirm,
 			ncall.RoutePoolV1Close,
-			ncall.RoutePoolV1State,
+			ncall.RoutePoolV1SessionState,
 		},
 	}
 }

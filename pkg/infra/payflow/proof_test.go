@@ -8,16 +8,11 @@ import (
 
 func TestProofRoundTripAndSignature(t *testing.T) {
 	offer := ServiceOffer{
-		Domain:                 "bitcast-gateway",
-		ServiceType:            "domain_query_fee",
-		Target:                 "domain/query",
-		GatewayPubkeyHex:       "03aa",
-		ClientPubkeyHex:        "02bb",
-		SpendTxID:              "spend_1",
-		ServiceParamsHash:      HashPayloadBytes([]byte(`["alice.bit"]`)),
-		PricingMode:            "fixed_price",
-		ProposedPaymentSatoshi: 1,
-		CreatedAtUnix:          99,
+		ServiceType:          "domain.v1.query",
+		ServiceNodePubkeyHex: "03aa",
+		ClientPubkeyHex:      "02bb",
+		RequestParams:        []byte(`["alice.bit"]`),
+		CreatedAtUnix:        99,
 	}
 	rawOffer, err := MarshalServiceOffer(offer)
 	if err != nil {
@@ -40,23 +35,9 @@ func TestProofRoundTripAndSignature(t *testing.T) {
 		t.Fatalf("gateway PrivateKeyFromHex() error = %v", err)
 	}
 	signedQuote, err := SignServiceQuote(ServiceQuote{
-		OfferHash:                  offerHash,
-		Domain:                     offer.Domain,
-		ServiceType:                offer.ServiceType,
-		ChargeReason:               "domain_query_fee",
-		Target:                     offer.Target,
-		GatewayPubkeyHex:           "03aa",
-		ClientPubkeyHex:            "02bb",
-		SpendTxID:                  "spend_1",
-		ServiceParamsHash:          offer.ServiceParamsHash,
-		SequenceNumber:             2,
-		ServerAmountBefore:         5,
-		ChargeAmountSatoshi:        1,
-		ServerAmountAfter:          6,
-		GrantedServiceDeadlineUnix: 123,
-		GrantedDurationSeconds:     30,
-		QuoteExpiresAtUnix:         130,
-		IssuedAtUnix:               100,
+		OfferHash:           offerHash,
+		ChargeAmountSatoshi: 1,
+		ExpiresAtUnix:       130,
 	}, gatewayPriv)
 	if err != nil {
 		t.Fatalf("SignServiceQuote() error = %v", err)

@@ -9,13 +9,13 @@ const (
 
 const (
 	RouteNodeV1CapabilitiesShow = "node.v1.capabilities_show"
+	RoutePaymentV1Quote         = "payment.v1.quote"
 	RoutePoolV1Info             = "pool.v1.info"
-	RoutePoolV1ServiceQuote     = "pool.v1.service_quote"
 	RoutePoolV1Create           = "pool.v1.create"
 	RoutePoolV1BaseTx           = "pool.v1.base_tx"
 	RoutePoolV1PayConfirm       = "pool.v1.pay_confirm"
 	RoutePoolV1Close            = "pool.v1.close"
-	RoutePoolV1State            = "pool.v1.state"
+	RoutePoolV1SessionState     = "pool.v1.session_state"
 )
 
 const (

@@ -30,6 +30,14 @@ func (m *FeePool2of2Receipt) Reset()         { *m = FeePool2of2Receipt{} }
 func (m *FeePool2of2Receipt) String() string { return oldproto.CompactTextString(m) }
 func (*FeePool2of2Receipt) ProtoMessage()    {}
 
+func (m *ChainTxV1Payment) Reset()         { *m = ChainTxV1Payment{} }
+func (m *ChainTxV1Payment) String() string { return oldproto.CompactTextString(m) }
+func (*ChainTxV1Payment) ProtoMessage()    {}
+
+func (m *ChainTxV1Receipt) Reset()         { *m = ChainTxV1Receipt{} }
+func (m *ChainTxV1Receipt) String() string { return oldproto.CompactTextString(m) }
+func (*ChainTxV1Receipt) ProtoMessage()    {}
+
 func (m *CapabilityItem) Reset()         { *m = CapabilityItem{} }
 func (m *CapabilityItem) String() string { return oldproto.CompactTextString(m) }
 func (*CapabilityItem) ProtoMessage()    {}

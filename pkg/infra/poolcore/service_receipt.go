@@ -10,30 +10,24 @@ import (
 
 // BuildSignedServiceReceipt 基于一次已受理扣费结果生成链下业务回执。
 // 设计说明：
-// - 回执必须绑定 accepted_charge_hash，避免把别的业务结果嫁接到本次收费；
+// - 回执必须绑定 offer_hash，避免把别的业务结果嫁接到本次成交；
 // - payloadBytes 由业务层自己定义，只要求 client/server 使用同一份规范化编码。
-func BuildSignedServiceReceipt(serverPrivHex string, isMainnet bool, clientPubkeyHex string, payOut PayConfirmResp, serviceType string, resultCode string, payloadBytes []byte) ([]byte, error) {
+func BuildSignedServiceReceipt(serverPrivHex string, isMainnet bool, offerHash string, serviceType string, payloadBytes []byte) ([]byte, error) {
 	if strings.TrimSpace(serverPrivHex) == "" {
 		return nil, fmt.Errorf("server private key required")
 	}
-	state, err := payflow.UnmarshalProofState(payOut.ProofStatePayload)
-	if err != nil {
-		return nil, fmt.Errorf("decode proof state payload: %w", err)
+	if strings.TrimSpace(offerHash) == "" {
+		return nil, fmt.Errorf("offer_hash required")
 	}
 	actor, err := BuildActor("service_receipt", strings.TrimSpace(serverPrivHex), isMainnet)
 	if err != nil {
 		return nil, err
 	}
 	receipt, err := payflow.SignServiceReceipt(payflow.ServiceReceipt{
-		ServiceType:        strings.TrimSpace(serviceType),
-		GatewayPubkeyHex:   strings.ToLower(strings.TrimSpace(actor.PubHex)),
-		ClientPubkeyHex:    NormalizeClientIDLoose(clientPubkeyHex),
-		SpendTxID:          strings.TrimSpace(state.SpendTxID),
-		SequenceNumber:     state.SequenceNumber,
-		AcceptedChargeHash: strings.ToLower(strings.TrimSpace(state.LastAcceptedChargeHash)),
-		ResultCode:         strings.TrimSpace(resultCode),
-		ResultPayloadHash:  payflow.HashPayloadBytes(payloadBytes),
-		CompletedAtUnix:    time.Now().Unix(),
+		OfferHash:    strings.ToLower(strings.TrimSpace(offerHash)),
+		ServiceType:  strings.TrimSpace(serviceType),
+		ResultHash:   payflow.HashPayloadBytes(payloadBytes),
+		IssuedAtUnix: time.Now().Unix(),
 	}, actor.PrivKey)
 	if err != nil {
 		return nil, err

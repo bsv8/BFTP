@@ -9,49 +9,36 @@ import (
 )
 
 const (
-	serviceOfferVersion   = "bsv8-service-offer-v2"
-	serviceQuoteVersion   = "bsv8-service-quote-v2"
+	serviceOfferVersion   = "bsv8-service-offer-v3"
+	serviceQuoteVersion   = "bsv8-service-quote-v3"
 	intentVersion         = "bsv8-feepool-charge-intent-v1"
 	clientCommitVersion   = "bsv8-feepool-client-commit-v1"
 	acceptedChargeVersion = "bsv8-feepool-accepted-charge-v1"
 	proofStateVersion     = "bsv8-feepool-proof-state-v1"
-	serviceReceiptVersion = "bsv8-feepool-service-receipt-v1"
+	serviceReceiptVersion = "bsv8-feepool-service-receipt-v2"
 )
 
 // ServiceOffer 描述 client 对某项服务的一次明确要约。
 // 设计说明：
-// - 费用池支付还没发生时，先把“我要什么服务、参数是什么、我希望怎么付”固定下来；
-// - 参数本体由业务层自己保存，这里只承诺 params_hash，保证共享层不被各子业务 payload 污染；
-// - spend_txid 放进要约里，是为了把报价直接绑定到这条 2-of-2 费用池通道。
+// - offer 只描述“我要买什么服务”，不再夹带费用池状态或支付方式；
+// - request_params 保存业务原始请求，quote/pay 之后都通过 offer_hash 反查这一份原文；
+// - OfferHash 是运行时派生值，不参与线格式，避免自引用。
 type ServiceOffer struct {
 	Version string
 
-	Domain            string
-	ServiceType       string
-	Target            string
-	GatewayPubkeyHex  string
-	ClientPubkeyHex   string
-	SpendTxID         string
-	ServiceParamsHash string
-
-	// PricingMode 明确 client 是按哪种规则请求报价，避免“金额约束”和“时长约束”混在一起。
-	PricingMode string
-
-	// ProposedPaymentSatoshi 只表达“我这次愿意支付多少”，不再冒充最终成交价。
-	ProposedPaymentSatoshi uint64
-	CreatedAtUnix          int64
+	ServiceType          string
+	ServiceNodePubkeyHex string
+	ClientPubkeyHex      string
+	RequestParams        []byte
+	CreatedAtUnix        int64
 }
 
 func (v ServiceOffer) Normalize() ServiceOffer {
 	v.Version = normalizeOrDefault(v.Version, serviceOfferVersion)
-	v.Domain = strings.TrimSpace(v.Domain)
 	v.ServiceType = strings.TrimSpace(v.ServiceType)
-	v.Target = strings.TrimSpace(v.Target)
-	v.GatewayPubkeyHex = normalizeHex(v.GatewayPubkeyHex)
+	v.ServiceNodePubkeyHex = normalizeHex(v.ServiceNodePubkeyHex)
 	v.ClientPubkeyHex = normalizeHex(v.ClientPubkeyHex)
-	v.SpendTxID = strings.TrimSpace(v.SpendTxID)
-	v.ServiceParamsHash = normalizeHex(v.ServiceParamsHash)
-	v.PricingMode = strings.TrimSpace(v.PricingMode)
+	v.RequestParams = append([]byte(nil), v.RequestParams...)
 	return v
 }
 
@@ -60,26 +47,14 @@ func (v ServiceOffer) Validate() error {
 	if v.Version != serviceOfferVersion {
 		return fmt.Errorf("service offer version mismatch")
 	}
-	if v.Domain == "" {
-		return fmt.Errorf("service offer domain required")
-	}
 	if v.ServiceType == "" {
 		return fmt.Errorf("service offer service_type required")
 	}
-	if v.GatewayPubkeyHex == "" {
-		return fmt.Errorf("service offer gateway_pubkey_hex required")
+	if v.ServiceNodePubkeyHex == "" {
+		return fmt.Errorf("service offer service_node_pubkey_hex required")
 	}
 	if v.ClientPubkeyHex == "" {
 		return fmt.Errorf("service offer client_pubkey_hex required")
-	}
-	if v.SpendTxID == "" {
-		return fmt.Errorf("service offer spend_txid required")
-	}
-	if v.ServiceParamsHash == "" {
-		return fmt.Errorf("service offer service_params_hash required")
-	}
-	if v.PricingMode == "" {
-		return fmt.Errorf("service offer pricing_mode required")
 	}
 	if v.CreatedAtUnix <= 0 {
 		return fmt.Errorf("service offer created_at_unix required")
@@ -91,63 +66,33 @@ func (v ServiceOffer) Array() []any {
 	v = v.Normalize()
 	return []any{
 		v.Version,
-		v.Domain,
 		v.ServiceType,
-		v.Target,
-		v.GatewayPubkeyHex,
+		v.ServiceNodePubkeyHex,
 		v.ClientPubkeyHex,
-		v.SpendTxID,
-		v.ServiceParamsHash,
-		v.PricingMode,
-		v.ProposedPaymentSatoshi,
+		v.RequestParams,
 		v.CreatedAtUnix,
 	}
 }
 
 // ServiceQuote 是 gateway 对某次要约给出的正式报价单。
 // 设计说明：
-// - quote 是 gateway 的签名承诺，client 后续 pay 只能精确引用它；
-// - quote 同时固定 sequence/server_amount，避免 client 继续“自己猜下一态”；
-// - offer_hash 让争议时能把原始要约链回去。
-// - 线格式固定为 [[字段...], 签名]，避免业务层反复重组“最后一个签名字段”。
+// - quote 只保留最小成交条件，保证两种支付方式共用同一张报价；
+// - 费用池状态、业务结果、payment_schemes 都不进入签名；
+// - 线格式固定为 [[字段...], 签名]，便于直接进入 OP_RETURN。
 type ServiceQuote struct {
 	Version string
 
 	OfferHash           string
-	Domain              string
-	ServiceType         string
-	ChargeReason        string
-	Target              string
-	GatewayPubkeyHex    string
-	ClientPubkeyHex     string
-	SpendTxID           string
-	ServiceParamsHash   string
-	SequenceNumber      uint32
-	ServerAmountBefore  uint64
 	ChargeAmountSatoshi uint64
-	ServerAmountAfter   uint64
+	ExpiresAtUnix       int64
 
-	// Granted* 是 gateway 对本次成交后服务量的正式承诺。
-	GrantedServiceDeadlineUnix int64
-	GrantedDurationSeconds     uint32
-	QuoteExpiresAtUnix         int64
-	IssuedAtUnix               int64
-
-	GatewaySignatureHex string
+	SignatureHex string
 }
 
 func (v ServiceQuote) Normalize() ServiceQuote {
 	v.Version = normalizeOrDefault(v.Version, serviceQuoteVersion)
 	v.OfferHash = normalizeHex(v.OfferHash)
-	v.Domain = strings.TrimSpace(v.Domain)
-	v.ServiceType = strings.TrimSpace(v.ServiceType)
-	v.ChargeReason = strings.TrimSpace(v.ChargeReason)
-	v.Target = strings.TrimSpace(v.Target)
-	v.GatewayPubkeyHex = normalizeHex(v.GatewayPubkeyHex)
-	v.ClientPubkeyHex = normalizeHex(v.ClientPubkeyHex)
-	v.SpendTxID = strings.TrimSpace(v.SpendTxID)
-	v.ServiceParamsHash = normalizeHex(v.ServiceParamsHash)
-	v.GatewaySignatureHex = normalizeHex(v.GatewaySignatureHex)
+	v.SignatureHex = normalizeHex(v.SignatureHex)
 	return v
 }
 
@@ -159,47 +104,11 @@ func (v ServiceQuote) ValidateUnsigned() error {
 	if v.OfferHash == "" {
 		return fmt.Errorf("service quote offer_hash required")
 	}
-	if v.Domain == "" {
-		return fmt.Errorf("service quote domain required")
-	}
-	if v.ServiceType == "" {
-		return fmt.Errorf("service quote service_type required")
-	}
-	if v.ChargeReason == "" {
-		return fmt.Errorf("service quote charge_reason required")
-	}
-	if v.GatewayPubkeyHex == "" {
-		return fmt.Errorf("service quote gateway_pubkey_hex required")
-	}
-	if v.ClientPubkeyHex == "" {
-		return fmt.Errorf("service quote client_pubkey_hex required")
-	}
-	if v.SpendTxID == "" {
-		return fmt.Errorf("service quote spend_txid required")
-	}
-	if v.ServiceParamsHash == "" {
-		return fmt.Errorf("service quote service_params_hash required")
-	}
-	if v.SequenceNumber == 0 {
-		return fmt.Errorf("service quote sequence_number required")
-	}
 	if v.ChargeAmountSatoshi == 0 {
 		return fmt.Errorf("service quote charge_amount required")
 	}
-	if v.ServerAmountAfter < v.ServerAmountBefore {
-		return fmt.Errorf("service quote server amount invalid")
-	}
-	if v.ServerAmountAfter-v.ServerAmountBefore != v.ChargeAmountSatoshi {
-		return fmt.Errorf("service quote amount delta mismatch")
-	}
-	if v.GrantedDurationSeconds > 0 && v.GrantedServiceDeadlineUnix <= 0 {
-		return fmt.Errorf("service quote granted_service_deadline_unix required when duration is set")
-	}
-	if v.IssuedAtUnix <= 0 {
-		return fmt.Errorf("service quote issued_at_unix required")
-	}
-	if v.QuoteExpiresAtUnix <= v.IssuedAtUnix {
-		return fmt.Errorf("service quote expires_at_unix invalid")
+	if v.ExpiresAtUnix <= 0 {
+		return fmt.Errorf("service quote expires_at_unix required")
 	}
 	return nil
 }
@@ -208,8 +117,8 @@ func (v ServiceQuote) Validate() error {
 	if err := v.ValidateUnsigned(); err != nil {
 		return err
 	}
-	if v.Normalize().GatewaySignatureHex == "" {
-		return fmt.Errorf("service quote gateway_signature required")
+	if v.Normalize().SignatureHex == "" {
+		return fmt.Errorf("service quote signature required")
 	}
 	return nil
 }
@@ -219,28 +128,14 @@ func (v ServiceQuote) UnsignedArray() []any {
 	return []any{
 		v.Version,
 		v.OfferHash,
-		v.Domain,
-		v.ServiceType,
-		v.ChargeReason,
-		v.Target,
-		v.GatewayPubkeyHex,
-		v.ClientPubkeyHex,
-		v.SpendTxID,
-		v.ServiceParamsHash,
-		v.SequenceNumber,
-		v.ServerAmountBefore,
 		v.ChargeAmountSatoshi,
-		v.ServerAmountAfter,
-		v.GrantedServiceDeadlineUnix,
-		v.GrantedDurationSeconds,
-		v.QuoteExpiresAtUnix,
-		v.IssuedAtUnix,
+		v.ExpiresAtUnix,
 	}
 }
 
 func (v ServiceQuote) Array() []any {
 	v = v.Normalize()
-	return []any{v.UnsignedArray(), v.GatewaySignatureHex}
+	return []any{v.UnsignedArray(), v.SignatureHex}
 }
 
 // ChargeIntent 描述“一次收费意图”的最小公共语义。
@@ -525,36 +420,26 @@ func (v ProofState) Array() []any {
 
 // ServiceReceipt 是收费后的链下业务完成回执。
 // 设计说明：
-// - 不上链，只在争议时作为“gateway 声称已办事”的签名证据；
-// - 它必须绑定 accepted_charge_hash，避免 gateway 拿别的业务结果来冒充本次收费的办事结果。
-// - 线格式固定为 [[字段...], 签名]，与 domain/quote 一致。
+// - payment_receipt 只证明支付成立，service_receipt 只证明服务结果；
+// - 回执绑定 offer_hash 与 result_hash，避免把别次业务结果嫁接到当前成交；
+// - 线格式固定为 [[字段...], 签名]。
 type ServiceReceipt struct {
 	Version string
 
-	ServiceType      string
-	GatewayPubkeyHex string
-	ClientPubkeyHex  string
-	SpendTxID        string
+	OfferHash    string
+	ServiceType  string
+	ResultHash   string
+	IssuedAtUnix int64
 
-	SequenceNumber     uint32
-	AcceptedChargeHash string
-	ResultCode         string
-	ResultPayloadHash  string
-	CompletedAtUnix    int64
-
-	GatewaySignatureHex string
+	SignatureHex string
 }
 
 func (v ServiceReceipt) Normalize() ServiceReceipt {
 	v.Version = normalizeOrDefault(v.Version, serviceReceiptVersion)
+	v.OfferHash = normalizeHex(v.OfferHash)
 	v.ServiceType = strings.TrimSpace(v.ServiceType)
-	v.GatewayPubkeyHex = normalizeHex(v.GatewayPubkeyHex)
-	v.ClientPubkeyHex = normalizeHex(v.ClientPubkeyHex)
-	v.SpendTxID = strings.TrimSpace(v.SpendTxID)
-	v.AcceptedChargeHash = normalizeHex(v.AcceptedChargeHash)
-	v.ResultCode = strings.TrimSpace(v.ResultCode)
-	v.ResultPayloadHash = normalizeHex(v.ResultPayloadHash)
-	v.GatewaySignatureHex = normalizeHex(v.GatewaySignatureHex)
+	v.ResultHash = normalizeHex(v.ResultHash)
+	v.SignatureHex = normalizeHex(v.SignatureHex)
 	return v
 }
 
@@ -563,26 +448,17 @@ func (v ServiceReceipt) ValidateUnsigned() error {
 	if v.Version != serviceReceiptVersion {
 		return fmt.Errorf("service receipt version mismatch")
 	}
+	if v.OfferHash == "" {
+		return fmt.Errorf("service receipt offer_hash required")
+	}
 	if v.ServiceType == "" {
 		return fmt.Errorf("service receipt service_type required")
 	}
-	if v.GatewayPubkeyHex == "" {
-		return fmt.Errorf("service receipt gateway_pubkey_hex required")
+	if v.ResultHash == "" {
+		return fmt.Errorf("service receipt result_hash required")
 	}
-	if v.ClientPubkeyHex == "" {
-		return fmt.Errorf("service receipt client_pubkey_hex required")
-	}
-	if v.SpendTxID == "" {
-		return fmt.Errorf("service receipt spend_txid required")
-	}
-	if v.SequenceNumber == 0 {
-		return fmt.Errorf("service receipt sequence_number required")
-	}
-	if v.AcceptedChargeHash == "" {
-		return fmt.Errorf("service receipt accepted_charge_hash required")
-	}
-	if v.ResultCode == "" {
-		return fmt.Errorf("service receipt result_code required")
+	if v.IssuedAtUnix <= 0 {
+		return fmt.Errorf("service receipt issued_at_unix required")
 	}
 	return nil
 }
@@ -591,8 +467,8 @@ func (v ServiceReceipt) Validate() error {
 	if err := v.ValidateUnsigned(); err != nil {
 		return err
 	}
-	if v.Normalize().GatewaySignatureHex == "" {
-		return fmt.Errorf("service receipt gateway_signature required")
+	if v.Normalize().SignatureHex == "" {
+		return fmt.Errorf("service receipt signature required")
 	}
 	return nil
 }
@@ -601,21 +477,16 @@ func (v ServiceReceipt) UnsignedArray() []any {
 	v = v.Normalize()
 	return []any{
 		v.Version,
+		v.OfferHash,
 		v.ServiceType,
-		v.GatewayPubkeyHex,
-		v.ClientPubkeyHex,
-		v.SpendTxID,
-		v.SequenceNumber,
-		v.AcceptedChargeHash,
-		v.ResultCode,
-		v.ResultPayloadHash,
-		v.CompletedAtUnix,
+		v.ResultHash,
+		v.IssuedAtUnix,
 	}
 }
 
 func (v ServiceReceipt) Array() []any {
 	v = v.Normalize()
-	return []any{v.UnsignedArray(), v.GatewaySignatureHex}
+	return []any{v.UnsignedArray(), v.SignatureHex}
 }
 
 func normalizeOrDefault(v string, fallback string) string {
@@ -660,7 +531,7 @@ func HashServiceOffer(v ServiceOffer) (string, error) {
 
 func HashServiceQuote(v ServiceQuote) (string, error) {
 	unsigned := v.Normalize()
-	unsigned.GatewaySignatureHex = ""
+	unsigned.SignatureHex = ""
 	raw, err := marshalArray(unsigned.UnsignedArray())
 	if err != nil {
 		return "", err

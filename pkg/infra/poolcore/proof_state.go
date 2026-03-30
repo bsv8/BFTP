@@ -1,6 +1,7 @@
 package poolcore
 
 import (
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"strings"
@@ -10,7 +11,7 @@ import (
 	"github.com/bsv8/BFTP/pkg/infra/payflow"
 )
 
-func buildPayConfirmProofPayload(row GatewaySessionRow, req PayConfirmReq, updatedTxHex string) ([]byte, []byte, error) {
+func buildPayConfirmProofPayload(db *sql.DB, row GatewaySessionRow, req PayConfirmReq, updatedTxHex string) ([]byte, []byte, error) {
 	if len(req.ProofIntent) == 0 && len(req.SignedProofCommit) == 0 {
 		return nil, nil, nil
 	}
@@ -21,7 +22,7 @@ func buildPayConfirmProofPayload(row GatewaySessionRow, req PayConfirmReq, updat
 	if err != nil {
 		return nil, nil, err
 	}
-	_, quoteHash, err := validateServiceQuoteAgainstPay(row, req)
+	_, _, quoteHash, err := validateServiceQuoteAgainstPay(db, row, req)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -80,37 +81,32 @@ func buildPayConfirmProofPayload(row GatewaySessionRow, req PayConfirmReq, updat
 	return payload, acceptedRaw, nil
 }
 
-func validateServiceQuoteAgainstPay(row GatewaySessionRow, req PayConfirmReq) (payflow.ServiceQuote, string, error) {
+func validateServiceQuoteAgainstPay(db *sql.DB, row GatewaySessionRow, req PayConfirmReq) (payflow.ServiceOffer, payflow.ServiceQuote, string, error) {
 	if len(req.ServiceQuote) == 0 {
-		return payflow.ServiceQuote{}, "", nil
+		return payflow.ServiceOffer{}, payflow.ServiceQuote{}, "", nil
 	}
 	gatewayPub, err := ec.PublicKeyFromString(strings.TrimSpace(row.ServerBSVCompressedPubHex))
 	if err != nil {
-		return payflow.ServiceQuote{}, "", fmt.Errorf("invalid stored gateway pubkey: %w", err)
+		return payflow.ServiceOffer{}, payflow.ServiceQuote{}, "", fmt.Errorf("invalid stored gateway pubkey: %w", err)
 	}
 	quote, quoteHash, err := ParseAndVerifyServiceQuote(req.ServiceQuote, gatewayPub)
 	if err != nil {
-		return payflow.ServiceQuote{}, "", err
+		return payflow.ServiceOffer{}, payflow.ServiceQuote{}, "", err
 	}
-	if err := ValidateServiceQuoteBinding(quote, row.ServerBSVCompressedPubHex, row.ClientBSVCompressedPubHex, row.SpendTxID, "", nil, time.Now().Unix()); err != nil {
-		return payflow.ServiceQuote{}, "", err
+	offer, found, err := LoadOfferByHash(db, quote.OfferHash)
+	if err != nil {
+		return payflow.ServiceOffer{}, payflow.ServiceQuote{}, "", err
 	}
-	if !strings.EqualFold(strings.TrimSpace(quote.ChargeReason), strings.TrimSpace(req.ChargeReason)) {
-		return payflow.ServiceQuote{}, "", fmt.Errorf("service quote charge_reason mismatch")
+	if !found {
+		return payflow.ServiceOffer{}, payflow.ServiceQuote{}, "", fmt.Errorf("service offer not found")
 	}
-	if quote.SequenceNumber != req.SequenceNumber {
-		return payflow.ServiceQuote{}, "", fmt.Errorf("service quote sequence_number mismatch")
-	}
-	if quote.ServerAmountBefore != row.ServerAmountSat {
-		return payflow.ServiceQuote{}, "", fmt.Errorf("service quote server_amount_before mismatch")
+	if err := ValidateServiceQuoteBinding(quote, offer, row.ServerBSVCompressedPubHex, row.ClientBSVCompressedPubHex, "", nil, time.Now().Unix()); err != nil {
+		return payflow.ServiceOffer{}, payflow.ServiceQuote{}, "", err
 	}
 	if quote.ChargeAmountSatoshi != req.ChargeAmountSatoshi {
-		return payflow.ServiceQuote{}, "", fmt.Errorf("service quote charge_amount mismatch")
+		return payflow.ServiceOffer{}, payflow.ServiceQuote{}, "", fmt.Errorf("service quote charge_amount mismatch")
 	}
-	if quote.ServerAmountAfter != req.ServerAmount {
-		return payflow.ServiceQuote{}, "", fmt.Errorf("service quote server_amount_after mismatch")
-	}
-	return quote, quoteHash, nil
+	return offer, quote, quoteHash, nil
 }
 
 func validateProofIntentAgainstPay(row GatewaySessionRow, req PayConfirmReq, intent payflow.ChargeIntent, quoteHash string) error {

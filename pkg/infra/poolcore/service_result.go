@@ -9,9 +9,9 @@ import "fmt"
 // - 这样共享的是“骨架”，不是业务结果对象本身。
 type ReceiptFinalizeSpec[T any] struct {
 	ServiceType       string
+	OfferHash         func(T) string
 	ApplyPayOut       func(T, PayConfirmResp) T
 	MarshalPayload    func(T) ([]byte, error)
-	ResultCode        func(T) string
 	SetServiceReceipt func(T, []byte) T
 }
 
@@ -22,6 +22,9 @@ func FinalizeServiceResult[T any](serverPrivHex string, isMainnet bool, clientID
 	if spec.MarshalPayload == nil {
 		return resp, fmt.Errorf("marshal payload handler required")
 	}
+	if spec.OfferHash == nil {
+		return resp, fmt.Errorf("offer hash handler required")
+	}
 	if spec.SetServiceReceipt == nil {
 		return resp, fmt.Errorf("set service receipt handler required")
 	}
@@ -30,11 +33,7 @@ func FinalizeServiceResult[T any](serverPrivHex string, isMainnet bool, clientID
 	if err != nil {
 		return resp, err
 	}
-	resultCode := ""
-	if spec.ResultCode != nil {
-		resultCode = spec.ResultCode(resp)
-	}
-	receipt, err := BuildSignedServiceReceipt(serverPrivHex, isMainnet, clientID, payOut, spec.ServiceType, resultCode, payload)
+	receipt, err := BuildSignedServiceReceipt(serverPrivHex, isMainnet, spec.OfferHash(resp), spec.ServiceType, payload)
 	if err != nil {
 		return resp, err
 	}

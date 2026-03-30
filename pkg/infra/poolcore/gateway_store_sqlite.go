@@ -46,6 +46,18 @@ type ListenerTargetRow struct {
 	ClientID string
 }
 
+type ServiceOfferRow struct {
+	OfferHash              string
+	ServiceType            string
+	ServiceNodePubkeyHex   string
+	ClientPubkeyHex        string
+	RequestParams          []byte
+	CreatedAtUnix          int64
+	LastQuotedAtUnix       int64
+	LastQuotedAmountSat    uint64
+	LastQuoteExpiresAtUnix int64
+}
+
 func InitGatewayStore(db *sql.DB) error {
 	if db == nil {
 		return fmt.Errorf("db is nil")
@@ -172,6 +184,18 @@ func InitGatewayStore(db *sql.DB) error {
 			config_value TEXT NOT NULL,
 			updated_at_unix INTEGER NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS service_offers (
+			offer_hash TEXT PRIMARY KEY,
+			service_type TEXT NOT NULL,
+			service_node_pubkey_hex TEXT NOT NULL,
+			client_pubkey_hex TEXT NOT NULL,
+			request_params BLOB NOT NULL,
+			created_at_unix INTEGER NOT NULL,
+			last_quoted_at_unix INTEGER NOT NULL DEFAULT 0,
+			last_quoted_amount_satoshi INTEGER NOT NULL DEFAULT 0,
+			last_quote_expires_at_unix INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_service_offers_client_created ON service_offers(client_pubkey_hex, created_at_unix DESC)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -194,6 +218,69 @@ func InitGatewayStore(db *sql.DB) error {
 		return err
 	}
 	return nil
+}
+
+func UpsertServiceOffer(db *sql.DB, row ServiceOfferRow) error {
+	if db == nil {
+		return fmt.Errorf("db is nil")
+	}
+	if strings.TrimSpace(row.OfferHash) == "" {
+		return fmt.Errorf("offer_hash required")
+	}
+	_, err := db.Exec(
+		`INSERT INTO service_offers(
+			offer_hash,service_type,service_node_pubkey_hex,client_pubkey_hex,request_params,created_at_unix,last_quoted_at_unix,last_quoted_amount_satoshi,last_quote_expires_at_unix
+		) VALUES(?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(offer_hash) DO UPDATE SET
+			service_type=excluded.service_type,
+			service_node_pubkey_hex=excluded.service_node_pubkey_hex,
+			client_pubkey_hex=excluded.client_pubkey_hex,
+			request_params=excluded.request_params,
+			created_at_unix=excluded.created_at_unix,
+			last_quoted_at_unix=excluded.last_quoted_at_unix,
+			last_quoted_amount_satoshi=excluded.last_quoted_amount_satoshi,
+			last_quote_expires_at_unix=excluded.last_quote_expires_at_unix`,
+		strings.TrimSpace(row.OfferHash),
+		strings.TrimSpace(row.ServiceType),
+		strings.ToLower(strings.TrimSpace(row.ServiceNodePubkeyHex)),
+		strings.ToLower(strings.TrimSpace(row.ClientPubkeyHex)),
+		append([]byte(nil), row.RequestParams...),
+		row.CreatedAtUnix,
+		row.LastQuotedAtUnix,
+		row.LastQuotedAmountSat,
+		row.LastQuoteExpiresAtUnix,
+	)
+	return err
+}
+
+func LoadServiceOfferByHash(db *sql.DB, offerHash string) (ServiceOfferRow, bool, error) {
+	if db == nil {
+		return ServiceOfferRow{}, false, fmt.Errorf("db is nil")
+	}
+	var row ServiceOfferRow
+	err := db.QueryRow(
+		`SELECT offer_hash,service_type,service_node_pubkey_hex,client_pubkey_hex,request_params,created_at_unix,last_quoted_at_unix,last_quoted_amount_satoshi,last_quote_expires_at_unix
+		   FROM service_offers
+		  WHERE offer_hash=?`,
+		strings.ToLower(strings.TrimSpace(offerHash)),
+	).Scan(
+		&row.OfferHash,
+		&row.ServiceType,
+		&row.ServiceNodePubkeyHex,
+		&row.ClientPubkeyHex,
+		&row.RequestParams,
+		&row.CreatedAtUnix,
+		&row.LastQuotedAtUnix,
+		&row.LastQuotedAmountSat,
+		&row.LastQuoteExpiresAtUnix,
+	)
+	if err == sql.ErrNoRows {
+		return ServiceOfferRow{}, false, nil
+	}
+	if err != nil {
+		return ServiceOfferRow{}, false, err
+	}
+	return row, true, nil
 }
 
 func ensureChargeEventColumns(db *sql.DB) error {

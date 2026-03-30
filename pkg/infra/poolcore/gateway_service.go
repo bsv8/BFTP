@@ -372,7 +372,7 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 		if len(req.ServiceQuote) == 0 {
 			return payReject(row.LifecycleState, "service_quote_required", "service quote required"), nil
 		}
-		quoted, _, err := validateServiceQuoteAgainstPay(row, req)
+		_, quoted, _, err := validateServiceQuoteAgainstPay(s.DB, row, req)
 		if err != nil {
 			return payReject(row.LifecycleState, "service_quote_invalid", err.Error()), nil
 		}
@@ -408,7 +408,7 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 	if err != nil {
 		return payReject(row.LifecycleState, "invalid_tx_update", "rebuild updated tx failed: "+err.Error()), nil
 	}
-	proofPayload, _, err := buildPayConfirmProofPayload(row, req, updatedTx.Hex())
+	proofPayload, _, err := buildPayConfirmProofPayload(s.DB, row, req, updatedTx.Hex())
 	if err != nil {
 		return payReject(row.LifecycleState, "proof_invalid", err.Error()), nil
 	}
@@ -468,11 +468,15 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 	billingCycleSeconds := s.Params.BillingCycleSeconds
 	effectiveUntilUnix := nowUnix
 	if chargeReason == "listen_cycle_fee" {
-		if boundQuote.GrantedDurationSeconds == 0 || boundQuote.GrantedServiceDeadlineUnix <= 0 {
-			return payReject(row.LifecycleState, "service_quote_invalid", "listen cycle quote granted duration missing"), nil
+		if req.ChargeAmountSatoshi == 0 {
+			return payReject(row.LifecycleState, "service_quote_invalid", "listen cycle charge_amount_satoshi required"), nil
 		}
-		billingCycleSeconds = boundQuote.GrantedDurationSeconds
-		effectiveUntilUnix = boundQuote.GrantedServiceDeadlineUnix
+		grantedDuration, err := ListenOfferBudgetToDurationSeconds(req.ChargeAmountSatoshi, s.Params.SingleCycleFeeSatoshi, s.Params.BillingCycleSeconds)
+		if err != nil {
+			return payReject(row.LifecycleState, "service_quote_invalid", err.Error()), nil
+		}
+		billingCycleSeconds = uint32(grantedDuration)
+		effectiveUntilUnix = nowUnix + int64(grantedDuration)
 	}
 	if err := InsertChargeEvent(
 		s.DB,
@@ -506,8 +510,8 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 		MergedCurrentTx:   mergedTx.Bytes(),
 		ProofStatePayload: append([]byte(nil), proofPayload...),
 	}
-	if len(proofPayload) > 0 && strings.TrimSpace(req.ChargeReason) != "" {
-		serviceReceipt, err := BuildSignedServiceReceipt(s.ServerPrivHex, s.IsMainnet, row.ClientID, resp, strings.TrimSpace(req.ChargeReason), "ok", nil)
+	if len(proofPayload) > 0 && strings.TrimSpace(req.ChargeReason) != "" && strings.TrimSpace(boundQuote.OfferHash) != "" {
+		serviceReceipt, err := BuildSignedServiceReceipt(s.ServerPrivHex, s.IsMainnet, boundQuote.OfferHash, strings.TrimSpace(req.ChargeReason), nil)
 		if err != nil {
 			return PayConfirmResp{}, err
 		}

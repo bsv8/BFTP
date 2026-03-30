@@ -17,8 +17,6 @@ type BillableServiceDecision struct {
 	Error                      string
 	ChargeReason               string
 	ChargeAmountSatoshi        uint64
-	GrantedServiceDeadlineUnix int64
-	GrantedDurationSeconds     uint32
 	QuoteTTLSeconds            uint32
 }
 
@@ -86,8 +84,8 @@ func (c ServiceCatalog) Quote(service *GatewayService, req ServiceQuoteReq) (Ser
 	if !strings.EqualFold(strings.TrimSpace(offer.ClientPubkeyHex), strings.TrimSpace(req.ClientID)) {
 		return ServiceQuoteResp{Success: false, Status: "rejected", Error: "service offer client mismatch"}, nil
 	}
-	if !strings.EqualFold(strings.TrimSpace(offer.ServiceParamsHash), HashServiceParamsPayload(req.ServiceParamsPayload)) {
-		return ServiceQuoteResp{Success: false, Status: "rejected", Error: "service params hash mismatch"}, nil
+	if string(offer.RequestParams) != string(req.ServiceParamsPayload) {
+		return ServiceQuoteResp{Success: false, Status: "rejected", Error: "service request_params mismatch"}, nil
 	}
 	decl, ok := c.lookup(strings.TrimSpace(offer.ServiceType))
 	if !ok {
@@ -118,23 +116,16 @@ func (c ServiceCatalog) Quote(service *GatewayService, req ServiceQuoteReq) (Ser
 			Error:   strings.TrimSpace(decision.Error),
 		}, nil
 	}
-	chargeReason := strings.TrimSpace(decision.ChargeReason)
-	if chargeReason == "" {
-		chargeReason = strings.TrimSpace(decl.ChargeReason)
-	}
-	if chargeReason == "" {
+	if strings.TrimSpace(decision.ChargeReason) == "" && strings.TrimSpace(decl.ChargeReason) == "" {
 		return ServiceQuoteResp{}, fmt.Errorf("billable service %q charge_reason required", decl.ServiceType)
 	}
 	if decision.ChargeAmountSatoshi == 0 {
 		return ServiceQuoteResp{}, fmt.Errorf("billable service %q charge_amount_satoshi required", decl.ServiceType)
 	}
 	_, raw, status, err := service.BuildServiceQuote(ServiceQuoteBuildInput{
-		Offer:                      offer,
-		ChargeReason:               chargeReason,
-		ChargeAmountSatoshi:        decision.ChargeAmountSatoshi,
-		GrantedServiceDeadlineUnix: decision.GrantedServiceDeadlineUnix,
-		GrantedDurationSeconds:     decision.GrantedDurationSeconds,
-		QuoteTTLSeconds:            decision.QuoteTTLSeconds,
+		Offer:               offer,
+		ChargeAmountSatoshi: decision.ChargeAmountSatoshi,
+		QuoteTTLSeconds:     decision.QuoteTTLSeconds,
 	})
 	if err != nil {
 		return ServiceQuoteResp{}, err

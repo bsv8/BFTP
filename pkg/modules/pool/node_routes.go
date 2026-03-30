@@ -12,7 +12,6 @@ type NodeRouteRuntime struct {
 	BindClientPeer func(clientID string)
 
 	Info         func(clientID string) (poolcore.InfoResp, error)
-	ServiceQuote func(poolcore.ServiceQuoteReq) (poolcore.ServiceQuoteResp, error)
 	Create       func(poolcore.CreateReq) (poolcore.CreateResp, error)
 	BaseTx       func(poolcore.BaseTxReq) (poolcore.BaseTxResp, error)
 	PayConfirm   func(poolcore.PayConfirmReq) (poolcore.PayConfirmResp, error)
@@ -40,24 +39,6 @@ func HandleNodeCall(_ context.Context, rt NodeRouteRuntime, meta ncall.CallConte
 			return true, ncall.CallResp{Ok: false, Code: "ROUTE_NOT_FOUND", Message: "route not found"}, nil
 		}
 		resp, err := rt.Info(clientID)
-		if err != nil {
-			return true, ncall.CallResp{}, err
-		}
-		out, err := ncall.MarshalProto(&resp)
-		return true, out, err
-	case ncall.RoutePoolV1ServiceQuote:
-		var body poolcore.ServiceQuoteReq
-		if err := ncall.DecodeProto(req.Route, req.Body, &body, true); err != nil {
-			return true, ncall.CallResp{Ok: false, Code: "BAD_REQUEST", Message: err.Error()}, nil
-		}
-		body.ClientID = strings.TrimSpace(meta.SenderPubkeyHex)
-		if rt.BindClientPeer != nil {
-			rt.BindClientPeer(body.ClientID)
-		}
-		if rt.ServiceQuote == nil {
-			return true, ncall.CallResp{Ok: false, Code: "ROUTE_NOT_FOUND", Message: "route not found"}, nil
-		}
-		resp, err := rt.ServiceQuote(body)
 		if err != nil {
 			return true, ncall.CallResp{}, err
 		}
@@ -126,7 +107,7 @@ func HandleNodeCall(_ context.Context, rt NodeRouteRuntime, meta ncall.CallConte
 		}
 		out, err := ncall.MarshalProto(&resp)
 		return true, out, err
-	case ncall.RoutePoolV1State:
+	case ncall.RoutePoolV1SessionState:
 		var body poolcore.StateReq
 		if err := ncall.DecodeProto(req.Route, req.Body, &body, false); err != nil {
 			return true, ncall.CallResp{Ok: false, Code: "BAD_REQUEST", Message: err.Error()}, nil
