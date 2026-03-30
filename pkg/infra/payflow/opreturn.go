@@ -8,7 +8,21 @@ import (
 	txsdk "github.com/bsv-blockchain/go-sdk/transaction"
 )
 
-func ExtractProofStatePayloadFromScript(lockingScript *script.Script) ([]byte, error) {
+func BuildDataOpReturnScript(payload []byte) (*script.Script, error) {
+	if len(payload) == 0 {
+		return nil, fmt.Errorf("op_return payload missing")
+	}
+	out := &script.Script{}
+	if err := out.AppendOpcodes(script.OpFALSE, script.OpRETURN); err != nil {
+		return nil, fmt.Errorf("build op_return prefix: %w", err)
+	}
+	if err := out.AppendPushData(payload); err != nil {
+		return nil, fmt.Errorf("build op_return payload: %w", err)
+	}
+	return out, nil
+}
+
+func ExtractDataPayloadFromScript(lockingScript *script.Script) ([]byte, error) {
 	if lockingScript == nil || !lockingScript.IsData() {
 		return nil, fmt.Errorf("op_return output required")
 	}
@@ -41,6 +55,10 @@ func ExtractProofStatePayloadFromScript(lockingScript *script.Script) ([]byte, e
 		return nil, fmt.Errorf("op_return payload missing")
 	}
 	return payload, nil
+}
+
+func ExtractProofStatePayloadFromScript(lockingScript *script.Script) ([]byte, error) {
+	return ExtractDataPayloadFromScript(lockingScript)
 }
 
 func ExtractProofStateFromTxHex(txHex string) (ProofState, bool, error) {

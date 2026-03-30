@@ -58,6 +58,15 @@ type ServiceOfferRow struct {
 	LastQuoteExpiresAtUnix int64
 }
 
+type ServiceQuotePaymentRow struct {
+	QuoteHash       string
+	OfferHash       string
+	PaymentScheme   string
+	PaymentTxID     string
+	ClientPubkeyHex string
+	AcceptedAtUnix  int64
+}
+
 func InitGatewayStore(db *sql.DB) error {
 	if db == nil {
 		return fmt.Errorf("db is nil")
@@ -196,6 +205,15 @@ func InitGatewayStore(db *sql.DB) error {
 			last_quote_expires_at_unix INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_service_offers_client_created ON service_offers(client_pubkey_hex, created_at_unix DESC)`,
+		`CREATE TABLE IF NOT EXISTS service_quote_payments (
+			quote_hash TEXT PRIMARY KEY,
+			offer_hash TEXT NOT NULL,
+			payment_scheme TEXT NOT NULL,
+			payment_txid TEXT NOT NULL,
+			client_pubkey_hex TEXT NOT NULL,
+			accepted_at_unix INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_service_quote_payments_offer ON service_quote_payments(offer_hash, accepted_at_unix DESC)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -279,6 +297,69 @@ func LoadServiceOfferByHash(db *sql.DB, offerHash string) (ServiceOfferRow, bool
 	}
 	if err != nil {
 		return ServiceOfferRow{}, false, err
+	}
+	return row, true, nil
+}
+
+func InsertServiceQuotePayment(db *sql.DB, row ServiceQuotePaymentRow) error {
+	if db == nil {
+		return fmt.Errorf("db is nil")
+	}
+	if strings.TrimSpace(row.QuoteHash) == "" {
+		return fmt.Errorf("quote_hash required")
+	}
+	if strings.TrimSpace(row.OfferHash) == "" {
+		return fmt.Errorf("offer_hash required")
+	}
+	if strings.TrimSpace(row.PaymentScheme) == "" {
+		return fmt.Errorf("payment_scheme required")
+	}
+	if strings.TrimSpace(row.PaymentTxID) == "" {
+		return fmt.Errorf("payment_txid required")
+	}
+	if strings.TrimSpace(row.ClientPubkeyHex) == "" {
+		return fmt.Errorf("client_pubkey_hex required")
+	}
+	if row.AcceptedAtUnix <= 0 {
+		return fmt.Errorf("accepted_at_unix required")
+	}
+	_, err := db.Exec(
+		`INSERT INTO service_quote_payments(
+			quote_hash,offer_hash,payment_scheme,payment_txid,client_pubkey_hex,accepted_at_unix
+		) VALUES(?,?,?,?,?,?)`,
+		strings.ToLower(strings.TrimSpace(row.QuoteHash)),
+		strings.ToLower(strings.TrimSpace(row.OfferHash)),
+		strings.TrimSpace(row.PaymentScheme),
+		strings.ToLower(strings.TrimSpace(row.PaymentTxID)),
+		strings.ToLower(strings.TrimSpace(row.ClientPubkeyHex)),
+		row.AcceptedAtUnix,
+	)
+	return err
+}
+
+func LoadServiceQuotePayment(db *sql.DB, quoteHash string) (ServiceQuotePaymentRow, bool, error) {
+	if db == nil {
+		return ServiceQuotePaymentRow{}, false, fmt.Errorf("db is nil")
+	}
+	var row ServiceQuotePaymentRow
+	err := db.QueryRow(
+		`SELECT quote_hash,offer_hash,payment_scheme,payment_txid,client_pubkey_hex,accepted_at_unix
+		   FROM service_quote_payments
+		  WHERE quote_hash=?`,
+		strings.ToLower(strings.TrimSpace(quoteHash)),
+	).Scan(
+		&row.QuoteHash,
+		&row.OfferHash,
+		&row.PaymentScheme,
+		&row.PaymentTxID,
+		&row.ClientPubkeyHex,
+		&row.AcceptedAtUnix,
+	)
+	if err == sql.ErrNoRows {
+		return ServiceQuotePaymentRow{}, false, nil
+	}
+	if err != nil {
+		return ServiceQuotePaymentRow{}, false, err
 	}
 	return row, true, nil
 }
