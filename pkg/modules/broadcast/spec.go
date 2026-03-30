@@ -15,12 +15,12 @@ func Spec() caps.ModuleSpec {
 			ID:      PublicCapabilityID,
 			Version: Version,
 		},
-		Protos: []string{
-			string(ProtoDemandPublishPaid),
-			string(ProtoDemandPublishBatchPaid),
-			string(ProtoLiveDemandPublishPaid),
-			string(ProtoNodeReachabilityAnnouncePaid),
-			string(ProtoNodeReachabilityQueryPaid),
+		Routes: []string{
+			RouteBroadcastV1DemandPublish,
+			RouteBroadcastV1DemandPublishBatch,
+			RouteBroadcastV1LiveDemandPublish,
+			RouteBroadcastV1NodeReachabilityAnnounce,
+			RouteBroadcastV1NodeReachabilityQuery,
 		},
 	}
 }

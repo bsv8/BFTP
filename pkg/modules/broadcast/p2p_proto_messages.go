@@ -2,9 +2,25 @@ package broadcast
 
 import oldproto "github.com/golang/protobuf/proto"
 
-func (m *DemandPublishPaidReq) Reset()         { *m = DemandPublishPaidReq{} }
-func (m *DemandPublishPaidReq) String() string { return oldproto.CompactTextString(m) }
-func (*DemandPublishPaidReq) ProtoMessage()    {}
+func (m *DemandPublishReq) Reset()         { *m = DemandPublishReq{} }
+func (m *DemandPublishReq) String() string { return oldproto.CompactTextString(m) }
+func (*DemandPublishReq) ProtoMessage()    {}
+
+func (m *DemandPublishBatchReq) Reset()         { *m = DemandPublishBatchReq{} }
+func (m *DemandPublishBatchReq) String() string { return oldproto.CompactTextString(m) }
+func (*DemandPublishBatchReq) ProtoMessage()    {}
+
+func (m *LiveDemandPublishReq) Reset()         { *m = LiveDemandPublishReq{} }
+func (m *LiveDemandPublishReq) String() string { return oldproto.CompactTextString(m) }
+func (*LiveDemandPublishReq) ProtoMessage()    {}
+
+func (m *NodeReachabilityAnnounceReq) Reset()         { *m = NodeReachabilityAnnounceReq{} }
+func (m *NodeReachabilityAnnounceReq) String() string { return oldproto.CompactTextString(m) }
+func (*NodeReachabilityAnnounceReq) ProtoMessage()    {}
+
+func (m *NodeReachabilityQueryReq) Reset()         { *m = NodeReachabilityQueryReq{} }
+func (m *NodeReachabilityQueryReq) String() string { return oldproto.CompactTextString(m) }
+func (*NodeReachabilityQueryReq) ProtoMessage()    {}
 
 func (m *DemandPublishPaidResp) Reset()         { *m = DemandPublishPaidResp{} }
 func (m *DemandPublishPaidResp) String() string { return oldproto.CompactTextString(m) }
@@ -14,10 +30,6 @@ func (m *DemandPublishBatchPaidItem) Reset()         { *m = DemandPublishBatchPa
 func (m *DemandPublishBatchPaidItem) String() string { return oldproto.CompactTextString(m) }
 func (*DemandPublishBatchPaidItem) ProtoMessage()    {}
 
-func (m *DemandPublishBatchPaidReq) Reset()         { *m = DemandPublishBatchPaidReq{} }
-func (m *DemandPublishBatchPaidReq) String() string { return oldproto.CompactTextString(m) }
-func (*DemandPublishBatchPaidReq) ProtoMessage()    {}
-
 func (m *DemandPublishBatchPaidResult) Reset()         { *m = DemandPublishBatchPaidResult{} }
 func (m *DemandPublishBatchPaidResult) String() string { return oldproto.CompactTextString(m) }
 func (*DemandPublishBatchPaidResult) ProtoMessage()    {}
@@ -26,25 +38,13 @@ func (m *DemandPublishBatchPaidResp) Reset()         { *m = DemandPublishBatchPa
 func (m *DemandPublishBatchPaidResp) String() string { return oldproto.CompactTextString(m) }
 func (*DemandPublishBatchPaidResp) ProtoMessage()    {}
 
-func (m *LiveDemandPublishPaidReq) Reset()         { *m = LiveDemandPublishPaidReq{} }
-func (m *LiveDemandPublishPaidReq) String() string { return oldproto.CompactTextString(m) }
-func (*LiveDemandPublishPaidReq) ProtoMessage()    {}
-
 func (m *LiveDemandPublishPaidResp) Reset()         { *m = LiveDemandPublishPaidResp{} }
 func (m *LiveDemandPublishPaidResp) String() string { return oldproto.CompactTextString(m) }
 func (*LiveDemandPublishPaidResp) ProtoMessage()    {}
 
-func (m *NodeReachabilityAnnouncePaidReq) Reset()         { *m = NodeReachabilityAnnouncePaidReq{} }
-func (m *NodeReachabilityAnnouncePaidReq) String() string { return oldproto.CompactTextString(m) }
-func (*NodeReachabilityAnnouncePaidReq) ProtoMessage()    {}
-
 func (m *NodeReachabilityAnnouncePaidResp) Reset()         { *m = NodeReachabilityAnnouncePaidResp{} }
 func (m *NodeReachabilityAnnouncePaidResp) String() string { return oldproto.CompactTextString(m) }
 func (*NodeReachabilityAnnouncePaidResp) ProtoMessage()    {}
-
-func (m *NodeReachabilityQueryPaidReq) Reset()         { *m = NodeReachabilityQueryPaidReq{} }
-func (m *NodeReachabilityQueryPaidReq) String() string { return oldproto.CompactTextString(m) }
-func (*NodeReachabilityQueryPaidReq) ProtoMessage()    {}
 
 func (m *NodeReachabilityQueryPaidResp) Reset()         { *m = NodeReachabilityQueryPaidResp{} }
 func (m *NodeReachabilityQueryPaidResp) String() string { return oldproto.CompactTextString(m) }
