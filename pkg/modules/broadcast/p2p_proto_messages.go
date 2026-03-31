@@ -6,6 +6,10 @@ func (m *DemandPublishReq) Reset()         { *m = DemandPublishReq{} }
 func (m *DemandPublishReq) String() string { return oldproto.CompactTextString(m) }
 func (*DemandPublishReq) ProtoMessage()    {}
 
+func (m *ListenCycleReq) Reset()         { *m = ListenCycleReq{} }
+func (m *ListenCycleReq) String() string { return oldproto.CompactTextString(m) }
+func (*ListenCycleReq) ProtoMessage()    {}
+
 func (m *DemandPublishBatchReq) Reset()         { *m = DemandPublishBatchReq{} }
 func (m *DemandPublishBatchReq) String() string { return oldproto.CompactTextString(m) }
 func (*DemandPublishBatchReq) ProtoMessage()    {}
@@ -25,6 +29,10 @@ func (*NodeReachabilityQueryReq) ProtoMessage()    {}
 func (m *DemandPublishPaidResp) Reset()         { *m = DemandPublishPaidResp{} }
 func (m *DemandPublishPaidResp) String() string { return oldproto.CompactTextString(m) }
 func (*DemandPublishPaidResp) ProtoMessage()    {}
+
+func (m *ListenCyclePaidResp) Reset()         { *m = ListenCyclePaidResp{} }
+func (m *ListenCyclePaidResp) String() string { return oldproto.CompactTextString(m) }
+func (*ListenCyclePaidResp) ProtoMessage()    {}
 
 func (m *DemandPublishBatchPaidItem) Reset()         { *m = DemandPublishBatchPaidItem{} }
 func (m *DemandPublishBatchPaidItem) String() string { return oldproto.CompactTextString(m) }

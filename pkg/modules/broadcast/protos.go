@@ -1,6 +1,7 @@
 package broadcast
 
 const (
+	RouteBroadcastV1ListenCycle              = "broadcast.v1.listen_cycle"
 	RouteBroadcastV1DemandPublish            = "broadcast.v1.demand_publish"
 	RouteBroadcastV1DemandPublishBatch       = "broadcast.v1.demand_publish_batch"
 	RouteBroadcastV1LiveDemandPublish        = "broadcast.v1.live_demand_publish"

@@ -16,6 +16,7 @@ func Spec() caps.ModuleSpec {
 			Version: Version,
 		},
 		Routes: []string{
+			RouteBroadcastV1ListenCycle,
 			RouteBroadcastV1DemandPublish,
 			RouteBroadcastV1DemandPublishBatch,
 			RouteBroadcastV1LiveDemandPublish,

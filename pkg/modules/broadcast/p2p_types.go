@@ -11,6 +11,12 @@ type DemandPublishReq struct {
 	BuyerAddrs []string `protobuf:"bytes,3,rep,name=buyer_addrs,json=buyerAddrs,proto3" json:"buyer_addrs,omitempty"`
 }
 
+type ListenCycleReq struct {
+	RequestedDurationSeconds uint32 `protobuf:"varint,1,opt,name=requested_duration_seconds,json=requestedDurationSeconds,proto3" json:"requested_duration_seconds,omitempty"`
+	RequestedUntilUnix       int64  `protobuf:"varint,2,opt,name=requested_until_unix,json=requestedUntilUnix,proto3" json:"requested_until_unix,omitempty"`
+	ProposedPaymentSatoshi   uint64 `protobuf:"varint,3,opt,name=proposed_payment_satoshi,json=proposedPaymentSatoshi,proto3" json:"proposed_payment_satoshi,omitempty"`
+}
+
 type DemandPublishBatchReq struct {
 	Items      []*DemandPublishBatchPaidItem `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
 	BuyerAddrs []string                      `protobuf:"bytes,2,rep,name=buyer_addrs,json=buyerAddrs,proto3" json:"buyer_addrs,omitempty"`
@@ -42,6 +48,19 @@ type DemandPublishPaidResp struct {
 	MergedCurrentTx   []byte `protobuf:"bytes,8,opt,name=merged_current_tx,json=mergedCurrentTx,proto3" json:"merged_current_tx,omitempty"`
 	ProofStatePayload []byte `protobuf:"bytes,9,opt,name=proof_state_payload,json=proofStatePayload,proto3" json:"proof_state_payload,omitempty"`
 	ServiceReceipt    []byte `protobuf:"bytes,10,opt,name=service_receipt,json=serviceReceipt,proto3" json:"service_receipt,omitempty"`
+}
+
+type ListenCyclePaidResp struct {
+	Success                bool   `protobuf:"varint,1,opt,name=success,proto3" json:"success"`
+	Status                 string `protobuf:"bytes,2,opt,name=status,proto3" json:"status"`
+	ChargedAmount          uint64 `protobuf:"varint,3,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
+	UpdatedTxID            string `protobuf:"bytes,4,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
+	GrantedDurationSeconds uint32 `protobuf:"varint,5,opt,name=granted_duration_seconds,json=grantedDurationSeconds,proto3" json:"granted_duration_seconds,omitempty"`
+	GrantedUntilUnix       int64  `protobuf:"varint,6,opt,name=granted_until_unix,json=grantedUntilUnix,proto3" json:"granted_until_unix,omitempty"`
+	Error                  string `protobuf:"bytes,7,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	MergedCurrentTx        []byte `protobuf:"bytes,8,opt,name=merged_current_tx,json=mergedCurrentTx,proto3" json:"merged_current_tx,omitempty"`
+	ProofStatePayload      []byte `protobuf:"bytes,9,opt,name=proof_state_payload,json=proofStatePayload,proto3" json:"proof_state_payload,omitempty"`
+	ServiceReceipt         []byte `protobuf:"bytes,10,opt,name=service_receipt,json=serviceReceipt,proto3" json:"service_receipt,omitempty"`
 }
 
 type DemandPublishBatchPaidItem struct {

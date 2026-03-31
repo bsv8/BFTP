@@ -3,12 +3,22 @@ package broadcast
 import "encoding/json"
 
 const (
+	ServiceTypeListenCycle              = "bitcast-gateway/listen_cycle_paid"
 	ServiceTypeDemandPublish            = "bitcast-gateway/demand_publish_paid"
 	ServiceTypeDemandPublishBatch       = "bitcast-gateway/demand_publish_batch_paid"
 	ServiceTypeLiveDemandPublish        = "bitcast-gateway/live_demand_publish_paid"
 	ServiceTypeNodeReachabilityAnnounce = "bitcast-gateway/node_reachability_announce_paid"
 	ServiceTypeNodeReachabilityQuery    = "bitcast-gateway/node_reachability_query_paid"
 )
+
+func MarshalListenCycleServicePayload(resp ListenCyclePaidResp) ([]byte, error) {
+	return json.Marshal([]any{
+		resp.Status,
+		resp.GrantedDurationSeconds,
+		resp.GrantedUntilUnix,
+		resp.Error,
+	})
+}
 
 func MarshalDemandPublishServicePayload(resp DemandPublishPaidResp) ([]byte, error) {
 	return json.Marshal([]any{

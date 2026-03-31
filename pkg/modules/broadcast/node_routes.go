@@ -13,6 +13,7 @@ import (
 // - 费用池扣费、公告落库、广播 fanout 仍留在 gateway 角色里；
 // - 这样公告合同和宿主实现能继续解耦。
 type NodeRouteRuntime struct {
+	ListenCycle              func(context.Context, ncall.CallContext, ncall.CallReq, ListenCycleReq) (ncall.CallResp, error)
 	DemandPublish            func(context.Context, ncall.CallContext, ncall.CallReq, DemandPublishReq) (ncall.CallResp, error)
 	DemandPublishBatch       func(context.Context, ncall.CallContext, ncall.CallReq, DemandPublishBatchReq) (ncall.CallResp, error)
 	LiveDemandPublish        func(context.Context, ncall.CallContext, ncall.CallReq, LiveDemandPublishReq) (ncall.CallResp, error)
@@ -23,6 +24,16 @@ type NodeRouteRuntime struct {
 // HandleNodeCall 统一处理 broadcast.v1.* 的 node.call 路由。
 func HandleNodeCall(ctx context.Context, rt NodeRouteRuntime, meta ncall.CallContext, req ncall.CallReq) (bool, ncall.CallResp, error) {
 	switch strings.TrimSpace(req.Route) {
+	case RouteBroadcastV1ListenCycle:
+		var body ListenCycleReq
+		if err := ncall.DecodeProto(req.Route, req.Body, &body, true); err != nil {
+			return true, badRequestResp(err.Error()), nil
+		}
+		if rt.ListenCycle == nil {
+			return true, routeNotFoundResp(), nil
+		}
+		resp, err := rt.ListenCycle(ctx, meta, req, body)
+		return true, resp, err
 	case RouteBroadcastV1DemandPublish:
 		var body DemandPublishReq
 		if err := ncall.DecodeProto(req.Route, req.Body, &body, true); err != nil {

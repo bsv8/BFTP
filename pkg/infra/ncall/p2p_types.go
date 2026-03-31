@@ -21,9 +21,6 @@ type PaymentOption struct {
 	Description              string `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
 	MinimumPoolAmountSatoshi uint64 `protobuf:"varint,5,opt,name=minimum_pool_amount_satoshi,json=minimumPoolAmountSatoshi,proto3" json:"minimum_pool_amount_satoshi,omitempty"`
 	FeeRateSatPerByteMilli   uint64 `protobuf:"varint,6,opt,name=fee_rate_sat_per_byte_milli,json=feeRateSatPerByteMilli,proto3" json:"fee_rate_sat_per_byte_milli,omitempty"`
-	SingleCycleFeeSatoshi    uint64 `protobuf:"varint,7,opt,name=single_cycle_fee_satoshi,json=singleCycleFeeSatoshi,proto3" json:"single_cycle_fee_satoshi,omitempty"`
-	SingleQueryFeeSatoshi    uint64 `protobuf:"varint,8,opt,name=single_query_fee_satoshi,json=singleQueryFeeSatoshi,proto3" json:"single_query_fee_satoshi,omitempty"`
-	SinglePublishFeeSatoshi  uint64 `protobuf:"varint,9,opt,name=single_publish_fee_satoshi,json=singlePublishFeeSatoshi,proto3" json:"single_publish_fee_satoshi,omitempty"`
 	LockBlocks               uint32 `protobuf:"varint,10,opt,name=lock_blocks,json=lockBlocks,proto3" json:"lock_blocks,omitempty"`
 	PricingMode              string `protobuf:"bytes,11,opt,name=pricing_mode,json=pricingMode,proto3" json:"pricing_mode,omitempty"`
 	ServiceQuantity          uint64 `protobuf:"varint,12,opt,name=service_quantity,json=serviceQuantity,proto3" json:"service_quantity,omitempty"`
@@ -72,11 +69,11 @@ type FeePool2of2Payment struct {
 }
 
 type FeePool2of2Receipt struct {
-	AcceptedAtUnix        int64  `protobuf:"varint,1,opt,name=accepted_at_unix,json=acceptedAtUnix,proto3" json:"accepted_at_unix,omitempty"`
-	ChargedAmountSatoshi  uint64 `protobuf:"varint,2,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
-	UpdatedTxID           string `protobuf:"bytes,3,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
-	MergedCurrentTx       []byte `protobuf:"bytes,4,opt,name=merged_current_tx,json=mergedCurrentTx,proto3" json:"merged_current_tx,omitempty"`
-	ProofStatePayload     []byte `protobuf:"bytes,5,opt,name=proof_state_payload,json=proofStatePayload,proto3" json:"proof_state_payload,omitempty"`
+	AcceptedAtUnix       int64  `protobuf:"varint,1,opt,name=accepted_at_unix,json=acceptedAtUnix,proto3" json:"accepted_at_unix,omitempty"`
+	ChargedAmountSatoshi uint64 `protobuf:"varint,2,opt,name=charged_amount_satoshi,json=chargedAmountSatoshi,proto3" json:"charged_amount_satoshi,omitempty"`
+	UpdatedTxID          string `protobuf:"bytes,3,opt,name=updated_txid,json=updatedTxid,proto3" json:"updated_txid,omitempty"`
+	MergedCurrentTx      []byte `protobuf:"bytes,4,opt,name=merged_current_tx,json=mergedCurrentTx,proto3" json:"merged_current_tx,omitempty"`
+	ProofStatePayload    []byte `protobuf:"bytes,5,opt,name=proof_state_payload,json=proofStatePayload,proto3" json:"proof_state_payload,omitempty"`
 }
 
 type ChainTxV1Payment struct {
