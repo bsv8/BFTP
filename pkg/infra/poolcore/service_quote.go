@@ -129,16 +129,18 @@ func (s *GatewayService) BuildServiceQuote(input ServiceQuoteBuildInput) (payflo
 	if err != nil {
 		return payflow.ServiceQuote{}, nil, "", err
 	}
-	if err := UpsertServiceOffer(s.DB, ServiceOfferRow{
-		OfferHash:              offerHash,
-		ServiceType:            offer.ServiceType,
-		ServiceNodePubkeyHex:   offer.ServiceNodePubkeyHex,
-		ClientPubkeyHex:        offer.ClientPubkeyHex,
-		RequestParams:          offer.RequestParams,
-		CreatedAtUnix:          offer.CreatedAtUnix,
-		LastQuotedAtUnix:       nowUnix,
-		LastQuotedAmountSat:    input.ChargeAmountSatoshi,
-		LastQuoteExpiresAtUnix: signed.ExpiresAtUnix,
+	if _, err := gatewayServiceDBValue(s, func(db *sql.DB) (struct{}, error) {
+		return struct{}{}, UpsertServiceOffer(db, ServiceOfferRow{
+			OfferHash:              offerHash,
+			ServiceType:            offer.ServiceType,
+			ServiceNodePubkeyHex:   offer.ServiceNodePubkeyHex,
+			ClientPubkeyHex:        offer.ClientPubkeyHex,
+			RequestParams:          offer.RequestParams,
+			CreatedAtUnix:          offer.CreatedAtUnix,
+			LastQuotedAtUnix:       nowUnix,
+			LastQuotedAmountSat:    input.ChargeAmountSatoshi,
+			LastQuoteExpiresAtUnix: signed.ExpiresAtUnix,
+		})
 	}); err != nil {
 		return payflow.ServiceQuote{}, nil, "", err
 	}

@@ -608,6 +608,26 @@ func InsertChargeEvent(db *sql.DB, clientID string, spendTxID string, sequence u
 	return err
 }
 
+func InsertChargeEventTx(tx *sql.Tx, clientID string, spendTxID string, sequence uint32, reason string, amount uint64, billingCycleSeconds uint32, effectiveUntilUnix int64, poolBalanceAfterSatoshi uint64) error {
+	if tx == nil {
+		return fmt.Errorf("tx is nil")
+	}
+	clientID = NormalizeClientIDLoose(clientID)
+	spendTxID = strings.TrimSpace(spendTxID)
+	reason = strings.TrimSpace(reason)
+	if clientID == "" || spendTxID == "" || reason == "" {
+		return fmt.Errorf("invalid charge event")
+	}
+	if effectiveUntilUnix <= 0 {
+		return fmt.Errorf("effective_until_unix must be positive")
+	}
+	_, err := tx.Exec(
+		`INSERT INTO fee_pool_charge_events(client_pubkey_hex,spend_txid,sequence_num,charge_reason,charge_amount_satoshi,billing_cycle_seconds,effective_until_unix,pool_balance_after_satoshi,created_at_unix) VALUES(?,?,?,?,?,?,?,?,?)`,
+		clientID, spendTxID, sequence, reason, amount, billingCycleSeconds, effectiveUntilUnix, poolBalanceAfterSatoshi, time.Now().Unix(),
+	)
+	return err
+}
+
 func CountChargeEventsByClientAndReason(db *sql.DB, clientID string, reason string) (int, error) {
 	if db == nil {
 		return 0, fmt.Errorf("db is nil")
@@ -839,6 +859,37 @@ func UpdateSession(db *sql.DB, row GatewaySessionRow) error {
 		return fmt.Errorf("lifecycle_state required")
 	}
 	_, err := db.Exec(
+		`UPDATE fee_pool_sessions
+		 SET sequence_num=?,server_amount_satoshi=?,client_amount_satoshi=?,base_txid=?,final_txid=?,base_tx_hex=?,current_tx_hex=?,lifecycle_state=?,frozen_reason=?,last_submit_error=?,submit_retry_count=?,last_submit_attempt_at_unix=?,close_submit_at_unix=?,close_observed_at_unix=?,close_observe_status=?,close_observe_reason=?,updated_at_unix=?
+		 WHERE spend_txid=?`,
+		row.Sequence, row.ServerAmountSat, row.ClientAmountSat,
+		strings.TrimSpace(row.BaseTxID), strings.TrimSpace(row.FinalTxID),
+		row.BaseTxHex, row.CurrentTxHex,
+		row.LifecycleState,
+		strings.TrimSpace(row.FrozenReason),
+		strings.TrimSpace(row.LastSubmitError),
+		row.SubmitRetryCount,
+		row.LastSubmitAttemptAtUnix,
+		row.CloseSubmitAtUnix,
+		row.CloseObservedAtUnix,
+		strings.TrimSpace(row.CloseObserveStatus),
+		strings.TrimSpace(row.CloseObserveReason),
+		row.UpdatedAt,
+		strings.TrimSpace(row.SpendTxID),
+	)
+	return err
+}
+
+func UpdateSessionTx(tx *sql.Tx, row GatewaySessionRow) error {
+	if tx == nil {
+		return fmt.Errorf("tx is nil")
+	}
+	row.UpdatedAt = time.Now().Unix()
+	row.LifecycleState = strings.ToLower(strings.TrimSpace(row.LifecycleState))
+	if row.LifecycleState == "" {
+		return fmt.Errorf("lifecycle_state required")
+	}
+	_, err := tx.Exec(
 		`UPDATE fee_pool_sessions
 		 SET sequence_num=?,server_amount_satoshi=?,client_amount_satoshi=?,base_txid=?,final_txid=?,base_tx_hex=?,current_tx_hex=?,lifecycle_state=?,frozen_reason=?,last_submit_error=?,submit_retry_count=?,last_submit_attempt_at_unix=?,close_submit_at_unix=?,close_observed_at_unix=?,close_observe_status=?,close_observe_reason=?,updated_at_unix=?
 		 WHERE spend_txid=?`,

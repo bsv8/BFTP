@@ -1,6 +1,7 @@
 package dealprod
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -9,9 +10,64 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/bsv8/BFTP/pkg/infra/sqliteactor"
 )
 
-type Service struct{ DB *sql.DB }
+type Service struct {
+	DB    *sql.DB
+	Actor *sqliteactor.Actor
+}
+
+// 设计说明：
+// - dealprod 现在作为“库内业务存储过程”样板；
+// - 外层业务不应该自己拼事务、自己拿 Rows 在外面跑；
+// - 若注入了 sqliteactor，就优先走单 owner 串行入口；
+// - 这样后面迁移时，调用方不需要知道底层是不是 sqlite 直连还是 actor 串行。
+func serviceDBValue[T any](s *Service, fn func(*sql.DB) (T, error)) (T, error) {
+	if s == nil {
+		var zero T
+		return zero, fmt.Errorf("dealprod service is nil")
+	}
+	if s.Actor != nil {
+		return sqliteactor.DoValue(context.Background(), s.Actor, fn)
+	}
+	if s.DB == nil {
+		var zero T
+		return zero, fmt.Errorf("dealprod db is nil")
+	}
+	return fn(s.DB)
+}
+
+func serviceDBTxValue[T any](s *Service, fn func(*sql.Tx) (T, error)) (T, error) {
+	if s == nil {
+		var zero T
+		return zero, fmt.Errorf("dealprod service is nil")
+	}
+	if s.Actor != nil {
+		return sqliteactor.TxValue(context.Background(), s.Actor, fn)
+	}
+	if s.DB == nil {
+		var zero T
+		return zero, fmt.Errorf("dealprod db is nil")
+	}
+	tx, err := s.DB.Begin()
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	value, err := fn(tx)
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	if err := tx.Commit(); err != nil {
+		var zero T
+		return zero, err
+	}
+	return value, nil
+}
 
 const ProtoDemandAnnounce = "/bsv-transfer/demand/announce/1.0.0"
 const ProtoLiveDemandAnnounce = "/bsv-transfer/live/demand/announce/1.0.0"
@@ -302,337 +358,354 @@ func InitDB(db *sql.DB) error {
 }
 
 func (s *Service) PublishDemand(req PublishDemandReq) (PublishDemandResp, error) {
-	if req.SeedHash == "" || req.BuyerPeerID == "" || req.ChunkCount == 0 {
-		return PublishDemandResp{}, fmt.Errorf("invalid publish demand")
-	}
-	addrsJSON := "[]"
-	if len(req.BuyerAddrs) > 0 {
-		b, err := json.Marshal(req.BuyerAddrs)
+	return serviceDBValue(s, func(db *sql.DB) (PublishDemandResp, error) {
+		if req.SeedHash == "" || req.BuyerPeerID == "" || req.ChunkCount == 0 {
+			return PublishDemandResp{}, fmt.Errorf("invalid publish demand")
+		}
+		addrsJSON := "[]"
+		if len(req.BuyerAddrs) > 0 {
+			b, err := json.Marshal(req.BuyerAddrs)
+			if err != nil {
+				return PublishDemandResp{}, err
+			}
+			addrsJSON = string(b)
+		}
+		id := "dmd_" + randHex(8)
+		_, err := db.Exec(`INSERT INTO demands(demand_id,seed_hash,buyer_pubkey_hex,buyer_addrs_json,chunk_count,status,created_at) VALUES(?,?,?,?,?,?,?)`, id, req.SeedHash, req.BuyerPeerID, addrsJSON, req.ChunkCount, "open", time.Now().Unix())
 		if err != nil {
 			return PublishDemandResp{}, err
 		}
-		addrsJSON = string(b)
-	}
-	id := "dmd_" + randHex(8)
-	_, err := s.DB.Exec(`INSERT INTO demands(demand_id,seed_hash,buyer_pubkey_hex,buyer_addrs_json,chunk_count,status,created_at) VALUES(?,?,?,?,?,?,?)`, id, req.SeedHash, req.BuyerPeerID, addrsJSON, req.ChunkCount, "open", time.Now().Unix())
-	if err != nil {
-		return PublishDemandResp{}, err
-	}
-	return PublishDemandResp{DemandID: id, Status: "open"}, nil
+		return PublishDemandResp{DemandID: id, Status: "open"}, nil
+	})
 }
 
 func (s *Service) PublishDemandBatch(req PublishDemandBatchReq) (PublishDemandBatchResp, error) {
-	if strings.TrimSpace(req.BuyerPeerID) == "" || len(req.Items) == 0 {
-		return PublishDemandBatchResp{}, fmt.Errorf("invalid publish demand batch")
-	}
-	addrsJSON := "[]"
-	if len(req.BuyerAddrs) > 0 {
-		b, err := json.Marshal(req.BuyerAddrs)
-		if err != nil {
-			return PublishDemandBatchResp{}, err
+	return serviceDBTxValue(s, func(tx *sql.Tx) (PublishDemandBatchResp, error) {
+		if strings.TrimSpace(req.BuyerPeerID) == "" || len(req.Items) == 0 {
+			return PublishDemandBatchResp{}, fmt.Errorf("invalid publish demand batch")
 		}
-		addrsJSON = string(b)
-	}
-	seen := make(map[string]struct{}, len(req.Items))
-	tx, err := s.DB.Begin()
-	if err != nil {
-		return PublishDemandBatchResp{}, err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	items := make([]PublishDemandBatchItemResp, 0, len(req.Items))
-	now := time.Now().Unix()
-	for _, item := range req.Items {
-		seedHash := strings.ToLower(strings.TrimSpace(item.SeedHash))
-		if seedHash == "" || item.ChunkCount == 0 {
-			return PublishDemandBatchResp{}, fmt.Errorf("invalid publish demand batch item")
+		addrsJSON := "[]"
+		if len(req.BuyerAddrs) > 0 {
+			b, err := json.Marshal(req.BuyerAddrs)
+			if err != nil {
+				return PublishDemandBatchResp{}, err
+			}
+			addrsJSON = string(b)
 		}
-		if _, ok := seen[seedHash]; ok {
-			return PublishDemandBatchResp{}, fmt.Errorf("duplicate seed hash in demand batch")
+		seen := make(map[string]struct{}, len(req.Items))
+		items := make([]PublishDemandBatchItemResp, 0, len(req.Items))
+		now := time.Now().Unix()
+		for _, item := range req.Items {
+			seedHash := strings.ToLower(strings.TrimSpace(item.SeedHash))
+			if seedHash == "" || item.ChunkCount == 0 {
+				return PublishDemandBatchResp{}, fmt.Errorf("invalid publish demand batch item")
+			}
+			if _, ok := seen[seedHash]; ok {
+				return PublishDemandBatchResp{}, fmt.Errorf("duplicate seed hash in demand batch")
+			}
+			seen[seedHash] = struct{}{}
+			id := "dmd_" + randHex(8)
+			if _, err := tx.Exec(`INSERT INTO demands(demand_id,seed_hash,buyer_pubkey_hex,buyer_addrs_json,chunk_count,status,created_at) VALUES(?,?,?,?,?,?,?)`,
+				id,
+				seedHash,
+				req.BuyerPeerID,
+				addrsJSON,
+				item.ChunkCount,
+				"open",
+				now,
+			); err != nil {
+				return PublishDemandBatchResp{}, err
+			}
+			items = append(items, PublishDemandBatchItemResp{
+				SeedHash:   seedHash,
+				ChunkCount: item.ChunkCount,
+				DemandID:   id,
+				Status:     "open",
+			})
 		}
-		seen[seedHash] = struct{}{}
-		id := "dmd_" + randHex(8)
-		if _, err := tx.Exec(`INSERT INTO demands(demand_id,seed_hash,buyer_pubkey_hex,buyer_addrs_json,chunk_count,status,created_at) VALUES(?,?,?,?,?,?,?)`,
-			id,
-			seedHash,
-			req.BuyerPeerID,
-			addrsJSON,
-			item.ChunkCount,
-			"open",
-			now,
-		); err != nil {
-			return PublishDemandBatchResp{}, err
-		}
-		items = append(items, PublishDemandBatchItemResp{
-			SeedHash:   seedHash,
-			ChunkCount: item.ChunkCount,
-			DemandID:   id,
-			Status:     "open",
-		})
-	}
-	if err := tx.Commit(); err != nil {
-		return PublishDemandBatchResp{}, err
-	}
-	return PublishDemandBatchResp{
-		Items:                items,
-		Status:               "open",
-		ChargedAmountSatoshi: req.ChargeAmountSatoshi,
-	}, nil
+		return PublishDemandBatchResp{
+			Items:                items,
+			Status:               "open",
+			ChargedAmountSatoshi: req.ChargeAmountSatoshi,
+		}, nil
+	})
 }
 
 func (s *Service) PublishLiveDemand(req PublishLiveDemandReq) (PublishLiveDemandResp, error) {
-	if strings.TrimSpace(req.StreamID) == "" || strings.TrimSpace(req.BuyerPeerID) == "" || req.Window == 0 {
-		return PublishLiveDemandResp{}, fmt.Errorf("invalid publish live demand")
-	}
-	addrsJSON := "[]"
-	if len(req.BuyerAddrs) > 0 {
-		b, err := json.Marshal(req.BuyerAddrs)
+	return serviceDBValue(s, func(db *sql.DB) (PublishLiveDemandResp, error) {
+		if strings.TrimSpace(req.StreamID) == "" || strings.TrimSpace(req.BuyerPeerID) == "" || req.Window == 0 {
+			return PublishLiveDemandResp{}, fmt.Errorf("invalid publish live demand")
+		}
+		addrsJSON := "[]"
+		if len(req.BuyerAddrs) > 0 {
+			b, err := json.Marshal(req.BuyerAddrs)
+			if err != nil {
+				return PublishLiveDemandResp{}, err
+			}
+			addrsJSON = string(b)
+		}
+		id := "ldmd_" + randHex(8)
+		_, err := db.Exec(`INSERT INTO live_demands(demand_id,stream_id,buyer_pubkey_hex,buyer_addrs_json,have_segment_index,window_size,status,created_at) VALUES(?,?,?,?,?,?,?,?)`,
+			id,
+			strings.ToLower(strings.TrimSpace(req.StreamID)),
+			strings.TrimSpace(req.BuyerPeerID),
+			addrsJSON,
+			req.HaveSegmentIndex,
+			req.Window,
+			"open",
+			time.Now().Unix(),
+		)
 		if err != nil {
 			return PublishLiveDemandResp{}, err
 		}
-		addrsJSON = string(b)
-	}
-	id := "ldmd_" + randHex(8)
-	_, err := s.DB.Exec(`INSERT INTO live_demands(demand_id,stream_id,buyer_pubkey_hex,buyer_addrs_json,have_segment_index,window_size,status,created_at) VALUES(?,?,?,?,?,?,?,?)`,
-		id,
-		strings.ToLower(strings.TrimSpace(req.StreamID)),
-		strings.TrimSpace(req.BuyerPeerID),
-		addrsJSON,
-		req.HaveSegmentIndex,
-		req.Window,
-		"open",
-		time.Now().Unix(),
-	)
-	if err != nil {
-		return PublishLiveDemandResp{}, err
-	}
-	return PublishLiveDemandResp{DemandID: id, Status: "open", ChargedAmountSatoshi: req.ChargeAmountSatoshi}, nil
+		return PublishLiveDemandResp{DemandID: id, Status: "open", ChargedAmountSatoshi: req.ChargeAmountSatoshi}, nil
+	})
 }
 
 func (s *Service) SubmitQuote(req QuoteSubmitReq) (QuoteSubmitResp, error) {
-	if req.DemandID == "" || req.SellerPeerID == "" || req.SeedPrice == 0 || req.ChunkPrice == 0 {
-		return QuoteSubmitResp{}, fmt.Errorf("invalid submit quote")
-	}
-	if req.ExpiresAt == 0 {
-		req.ExpiresAt = time.Now().Add(10 * time.Minute).Unix()
-	}
-	id := "q_" + randHex(8)
-	_, err := s.DB.Exec(`INSERT INTO quotes(quote_id,demand_id,seller_pubkey_hex,seed_price,chunk_price,expires_at,created_at) VALUES(?,?,?,?,?,?,?)`, id, req.DemandID, req.SellerPeerID, req.SeedPrice, req.ChunkPrice, req.ExpiresAt, time.Now().Unix())
-	if err != nil {
-		return QuoteSubmitResp{}, err
-	}
-	return QuoteSubmitResp{QuoteID: id, Status: "quoted"}, nil
+	return serviceDBValue(s, func(db *sql.DB) (QuoteSubmitResp, error) {
+		if req.DemandID == "" || req.SellerPeerID == "" || req.SeedPrice == 0 || req.ChunkPrice == 0 {
+			return QuoteSubmitResp{}, fmt.Errorf("invalid submit quote")
+		}
+		if req.ExpiresAt == 0 {
+			req.ExpiresAt = time.Now().Add(10 * time.Minute).Unix()
+		}
+		id := "q_" + randHex(8)
+		_, err := db.Exec(`INSERT INTO quotes(quote_id,demand_id,seller_pubkey_hex,seed_price,chunk_price,expires_at,created_at) VALUES(?,?,?,?,?,?,?)`, id, req.DemandID, req.SellerPeerID, req.SeedPrice, req.ChunkPrice, req.ExpiresAt, time.Now().Unix())
+		if err != nil {
+			return QuoteSubmitResp{}, err
+		}
+		return QuoteSubmitResp{QuoteID: id, Status: "quoted"}, nil
+	})
 }
 
 func (s *Service) ListQuotes(req QuoteListReq) (QuoteListResp, error) {
-	rows, err := s.DB.Query(`SELECT quote_id,seller_pubkey_hex,seed_price,chunk_price,expires_at FROM quotes WHERE demand_id=? ORDER BY created_at ASC`, req.DemandID)
-	if err != nil {
-		return QuoteListResp{}, err
-	}
-	defer rows.Close()
-	out := make([]QuoteItem, 0)
-	for rows.Next() {
-		var q QuoteItem
-		if err := rows.Scan(&q.QuoteID, &q.SellerPeerID, &q.SeedPrice, &q.ChunkPrice, &q.ExpiresAt); err != nil {
+	return serviceDBValue(s, func(db *sql.DB) (QuoteListResp, error) {
+		rows, err := db.Query(`SELECT quote_id,seller_pubkey_hex,seed_price,chunk_price,expires_at FROM quotes WHERE demand_id=? ORDER BY created_at ASC`, req.DemandID)
+		if err != nil {
 			return QuoteListResp{}, err
 		}
-		if q.ExpiresAt > time.Now().Unix() {
-			out = append(out, q)
+		defer rows.Close()
+		out := make([]QuoteItem, 0)
+		for rows.Next() {
+			var q QuoteItem
+			if err := rows.Scan(&q.QuoteID, &q.SellerPeerID, &q.SeedPrice, &q.ChunkPrice, &q.ExpiresAt); err != nil {
+				return QuoteListResp{}, err
+			}
+			if q.ExpiresAt > time.Now().Unix() {
+				out = append(out, q)
+			}
 		}
-	}
-	return QuoteListResp{Quotes: out}, nil
+		if err := rows.Err(); err != nil {
+			return QuoteListResp{}, err
+		}
+		return QuoteListResp{Quotes: out}, nil
+	})
 }
 
 func (s *Service) SubmitLiveQuote(req LiveQuoteSubmitReq) (LiveQuoteSubmitResp, error) {
-	if strings.TrimSpace(req.DemandID) == "" || strings.TrimSpace(req.SellerPeerID) == "" || strings.TrimSpace(req.StreamID) == "" || len(req.RecentSegments) == 0 {
-		return LiveQuoteSubmitResp{}, fmt.Errorf("invalid submit live quote")
-	}
-	if req.ExpiresAt == 0 {
-		req.ExpiresAt = time.Now().Add(2 * time.Minute).Unix()
-	}
-	segmentsJSON, err := json.Marshal(req.RecentSegments)
-	if err != nil {
-		return LiveQuoteSubmitResp{}, err
-	}
-	id := "lq_" + randHex(8)
-	_, err = s.DB.Exec(`INSERT INTO live_quotes(quote_id,demand_id,seller_pubkey_hex,stream_id,latest_segment_index,recent_segments_json,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?)`,
-		id,
-		strings.TrimSpace(req.DemandID),
-		strings.TrimSpace(req.SellerPeerID),
-		strings.ToLower(strings.TrimSpace(req.StreamID)),
-		req.LatestSegmentIndex,
-		string(segmentsJSON),
-		req.ExpiresAt,
-		time.Now().Unix(),
-	)
-	if err != nil {
-		return LiveQuoteSubmitResp{}, err
-	}
-	return LiveQuoteSubmitResp{QuoteID: id, Status: "quoted"}, nil
+	return serviceDBValue(s, func(db *sql.DB) (LiveQuoteSubmitResp, error) {
+		if strings.TrimSpace(req.DemandID) == "" || strings.TrimSpace(req.SellerPeerID) == "" || strings.TrimSpace(req.StreamID) == "" || len(req.RecentSegments) == 0 {
+			return LiveQuoteSubmitResp{}, fmt.Errorf("invalid submit live quote")
+		}
+		if req.ExpiresAt == 0 {
+			req.ExpiresAt = time.Now().Add(2 * time.Minute).Unix()
+		}
+		segmentsJSON, err := json.Marshal(req.RecentSegments)
+		if err != nil {
+			return LiveQuoteSubmitResp{}, err
+		}
+		id := "lq_" + randHex(8)
+		_, err = db.Exec(`INSERT INTO live_quotes(quote_id,demand_id,seller_pubkey_hex,stream_id,latest_segment_index,recent_segments_json,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?)`,
+			id,
+			strings.TrimSpace(req.DemandID),
+			strings.TrimSpace(req.SellerPeerID),
+			strings.ToLower(strings.TrimSpace(req.StreamID)),
+			req.LatestSegmentIndex,
+			string(segmentsJSON),
+			req.ExpiresAt,
+			time.Now().Unix(),
+		)
+		if err != nil {
+			return LiveQuoteSubmitResp{}, err
+		}
+		return LiveQuoteSubmitResp{QuoteID: id, Status: "quoted"}, nil
+	})
 }
 
 func (s *Service) ListLiveQuotes(req LiveQuoteListReq) (LiveQuoteListResp, error) {
-	rows, err := s.DB.Query(`SELECT quote_id,seller_pubkey_hex,stream_id,latest_segment_index,recent_segments_json,expires_at FROM live_quotes WHERE demand_id=? ORDER BY created_at ASC`, strings.TrimSpace(req.DemandID))
-	if err != nil {
-		return LiveQuoteListResp{}, err
-	}
-	defer rows.Close()
-	out := make([]*LiveQuoteItem, 0)
-	now := time.Now().Unix()
-	for rows.Next() {
-		var item LiveQuoteItem
-		var segmentsJSON string
-		if err := rows.Scan(&item.QuoteID, &item.SellerPeerID, &item.StreamID, &item.LatestSegmentIndex, &segmentsJSON, &item.ExpiresAt); err != nil {
+	return serviceDBValue(s, func(db *sql.DB) (LiveQuoteListResp, error) {
+		rows, err := db.Query(`SELECT quote_id,seller_pubkey_hex,stream_id,latest_segment_index,recent_segments_json,expires_at FROM live_quotes WHERE demand_id=? ORDER BY created_at ASC`, strings.TrimSpace(req.DemandID))
+		if err != nil {
 			return LiveQuoteListResp{}, err
 		}
-		if item.ExpiresAt > 0 && item.ExpiresAt < now {
-			continue
-		}
-		if strings.TrimSpace(segmentsJSON) != "" {
-			var segments []*LiveQuoteSegment
-			if err := json.Unmarshal([]byte(segmentsJSON), &segments); err == nil {
-				item.RecentSegments = segments
+		defer rows.Close()
+		out := make([]*LiveQuoteItem, 0)
+		now := time.Now().Unix()
+		for rows.Next() {
+			var item LiveQuoteItem
+			var segmentsJSON string
+			if err := rows.Scan(&item.QuoteID, &item.SellerPeerID, &item.StreamID, &item.LatestSegmentIndex, &segmentsJSON, &item.ExpiresAt); err != nil {
+				return LiveQuoteListResp{}, err
 			}
+			if item.ExpiresAt > 0 && item.ExpiresAt < now {
+				continue
+			}
+			if strings.TrimSpace(segmentsJSON) != "" {
+				var segments []*LiveQuoteSegment
+				if err := json.Unmarshal([]byte(segmentsJSON), &segments); err == nil {
+					item.RecentSegments = segments
+				}
+			}
+			out = append(out, &item)
 		}
-		out = append(out, &item)
-	}
-	return LiveQuoteListResp{Quotes: out}, nil
+		if err := rows.Err(); err != nil {
+			return LiveQuoteListResp{}, err
+		}
+		return LiveQuoteListResp{Quotes: out}, nil
+	})
 }
 
 func (s *Service) AcceptDeal(req DealAcceptReq) (DealAcceptResp, error) {
-	if req.DemandID == "" || req.BuyerPeerID == "" || req.ArbiterPeerID == "" {
-		return DealAcceptResp{}, fmt.Errorf("invalid accept deal")
-	}
-	var demandBuyerID string
-	if err := s.DB.QueryRow(`SELECT buyer_pubkey_hex FROM demands WHERE demand_id=?`, req.DemandID).Scan(&demandBuyerID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return DealAcceptResp{}, fmt.Errorf("demand not found")
+	return serviceDBValue(s, func(db *sql.DB) (DealAcceptResp, error) {
+		if req.DemandID == "" || req.BuyerPeerID == "" || req.ArbiterPeerID == "" {
+			return DealAcceptResp{}, fmt.Errorf("invalid accept deal")
 		}
-		return DealAcceptResp{}, err
-	}
-	if demandBuyerID != req.BuyerPeerID {
-		return DealAcceptResp{}, fmt.Errorf("buyer mismatch for demand")
-	}
-	var sellerID string
-	var chunkPrice uint64
-	if strings.TrimSpace(req.QuoteID) != "" {
-		if err := s.DB.QueryRow(`SELECT seller_pubkey_hex,chunk_price FROM quotes WHERE quote_id=? AND demand_id=?`, req.QuoteID, req.DemandID).Scan(&sellerID, &chunkPrice); err != nil {
+		var demandBuyerID string
+		if err := db.QueryRow(`SELECT buyer_pubkey_hex FROM demands WHERE demand_id=?`, req.DemandID).Scan(&demandBuyerID); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				return DealAcceptResp{}, fmt.Errorf("quote not found")
+				return DealAcceptResp{}, fmt.Errorf("demand not found")
 			}
 			return DealAcceptResp{}, err
 		}
-	} else {
-		if strings.TrimSpace(req.DirectSellerPeerID) == "" || req.DirectChunkPrice == 0 || req.DirectSeedPrice == 0 {
-			return DealAcceptResp{}, fmt.Errorf("direct quote fields required")
+		if demandBuyerID != req.BuyerPeerID {
+			return DealAcceptResp{}, fmt.Errorf("buyer mismatch for demand")
 		}
-		if req.DirectExpiresAt > 0 && req.DirectExpiresAt < time.Now().Unix() {
-			return DealAcceptResp{}, fmt.Errorf("direct quote expired")
+		var sellerID string
+		var chunkPrice uint64
+		if strings.TrimSpace(req.QuoteID) != "" {
+			if err := db.QueryRow(`SELECT seller_pubkey_hex,chunk_price FROM quotes WHERE quote_id=? AND demand_id=?`, req.QuoteID, req.DemandID).Scan(&sellerID, &chunkPrice); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return DealAcceptResp{}, fmt.Errorf("quote not found")
+				}
+				return DealAcceptResp{}, err
+			}
+		} else {
+			if strings.TrimSpace(req.DirectSellerPeerID) == "" || req.DirectChunkPrice == 0 || req.DirectSeedPrice == 0 {
+				return DealAcceptResp{}, fmt.Errorf("direct quote fields required")
+			}
+			if req.DirectExpiresAt > 0 && req.DirectExpiresAt < time.Now().Unix() {
+				return DealAcceptResp{}, fmt.Errorf("direct quote expired")
+			}
+			sellerID = strings.ToLower(strings.TrimSpace(req.DirectSellerPeerID))
+			chunkPrice = req.DirectChunkPrice
 		}
-		sellerID = strings.ToLower(strings.TrimSpace(req.DirectSellerPeerID))
-		chunkPrice = req.DirectChunkPrice
-	}
-	id := "deal_" + randHex(8)
-	quoteID := strings.TrimSpace(req.QuoteID)
-	if quoteID == "" {
-		quoteID = "direct"
-	}
-	_, err := s.DB.Exec(`INSERT INTO deals(deal_id,demand_id,quote_id,buyer_pubkey_hex,seller_pubkey_hex,arbiter_pubkey_hex,chunk_price,status,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, id, req.DemandID, quoteID, req.BuyerPeerID, sellerID, req.ArbiterPeerID, chunkPrice, "channel_prepared", time.Now().Unix())
-	if err != nil {
-		return DealAcceptResp{}, err
-	}
-	return DealAcceptResp{DealID: id, SellerPeerID: sellerID, ChunkPrice: chunkPrice, Status: "channel_prepared"}, nil
+		id := "deal_" + randHex(8)
+		quoteID := strings.TrimSpace(req.QuoteID)
+		if quoteID == "" {
+			quoteID = "direct"
+		}
+		_, err := db.Exec(`INSERT INTO deals(deal_id,demand_id,quote_id,buyer_pubkey_hex,seller_pubkey_hex,arbiter_pubkey_hex,chunk_price,status,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, id, req.DemandID, quoteID, req.BuyerPeerID, sellerID, req.ArbiterPeerID, chunkPrice, "channel_prepared", time.Now().Unix())
+		if err != nil {
+			return DealAcceptResp{}, err
+		}
+		return DealAcceptResp{DealID: id, SellerPeerID: sellerID, ChunkPrice: chunkPrice, Status: "channel_prepared"}, nil
+	})
 }
 
 func (s *Service) OpenSession(req SessionOpenReq) (SessionOpenResp, error) {
-	if req.DealID == "" {
-		return SessionOpenResp{}, fmt.Errorf("deal_id required")
-	}
-	var chunkPrice uint64
-	if err := s.DB.QueryRow(`SELECT chunk_price FROM deals WHERE deal_id=?`, req.DealID).Scan(&chunkPrice); err != nil {
-		return SessionOpenResp{}, err
-	}
-	id := "sess_" + randHex(8)
-	_, err := s.DB.Exec(`INSERT INTO sessions(session_id,deal_id,chunk_price,released_chunks,released_amount,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, id, req.DealID, chunkPrice, 0, 0, "active", time.Now().Unix(), time.Now().Unix())
-	if err != nil {
-		return SessionOpenResp{}, err
-	}
-	return SessionOpenResp{SessionID: id, Status: "active"}, nil
+	return serviceDBValue(s, func(db *sql.DB) (SessionOpenResp, error) {
+		if req.DealID == "" {
+			return SessionOpenResp{}, fmt.Errorf("deal_id required")
+		}
+		var chunkPrice uint64
+		if err := db.QueryRow(`SELECT chunk_price FROM deals WHERE deal_id=?`, req.DealID).Scan(&chunkPrice); err != nil {
+			return SessionOpenResp{}, err
+		}
+		id := "sess_" + randHex(8)
+		_, err := db.Exec(`INSERT INTO sessions(session_id,deal_id,chunk_price,released_chunks,released_amount,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, id, req.DealID, chunkPrice, 0, 0, "active", time.Now().Unix(), time.Now().Unix())
+		if err != nil {
+			return SessionOpenResp{}, err
+		}
+		return SessionOpenResp{SessionID: id, Status: "active"}, nil
+	})
 }
 
 func (s *Service) ReleaseChunk(req ReleaseChunkReq) (ReleaseChunkResp, error) {
-	if req.SessionID == "" {
-		return ReleaseChunkResp{}, fmt.Errorf("session_id required")
-	}
-	tx, err := s.DB.Begin()
-	if err != nil {
-		return ReleaseChunkResp{}, err
-	}
-	defer tx.Rollback()
-	var chunkPrice uint64
-	var releasedChunks uint32
-	var releasedAmount uint64
-	var status string
-	if err := tx.QueryRow(`SELECT chunk_price,released_chunks,released_amount,status FROM sessions WHERE session_id=?`, req.SessionID).Scan(&chunkPrice, &releasedChunks, &releasedAmount, &status); err != nil {
-		return ReleaseChunkResp{}, err
-	}
-	if status != "active" && status != "chunk_paying" {
-		return ReleaseChunkResp{}, fmt.Errorf("session status %s", status)
-	}
-	if req.Amount != chunkPrice {
-		return ReleaseChunkResp{}, fmt.Errorf("amount mismatch")
-	}
-	if req.ChunkIndex != releasedChunks {
-		return ReleaseChunkResp{}, fmt.Errorf("chunk_index must be next (%d)", releasedChunks)
-	}
-	releasedChunks++
-	releasedAmount += req.Amount
-	token := "rt_" + randHex(12)
-	if _, err := tx.Exec(`INSERT INTO release_tokens(session_id,chunk_index,release_token,used,created_at) VALUES(?,?,?,?,?)`, req.SessionID, req.ChunkIndex, token, 0, time.Now().Unix()); err != nil {
-		return ReleaseChunkResp{}, err
-	}
-	if _, err := tx.Exec(`UPDATE sessions SET released_chunks=?,released_amount=?,status='chunk_paying',updated_at=? WHERE session_id=?`, releasedChunks, releasedAmount, time.Now().Unix(), req.SessionID); err != nil {
-		return ReleaseChunkResp{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return ReleaseChunkResp{}, err
-	}
-	return ReleaseChunkResp{SessionID: req.SessionID, ReleaseToken: token, ReleasedChunks: releasedChunks, ReleasedAmount: releasedAmount, Status: "chunk_paying"}, nil
+	return serviceDBTxValue(s, func(tx *sql.Tx) (ReleaseChunkResp, error) {
+		if req.SessionID == "" {
+			return ReleaseChunkResp{}, fmt.Errorf("session_id required")
+		}
+		var chunkPrice uint64
+		var releasedChunks uint32
+		var releasedAmount uint64
+		var status string
+		if err := tx.QueryRow(`SELECT chunk_price,released_chunks,released_amount,status FROM sessions WHERE session_id=?`, req.SessionID).Scan(&chunkPrice, &releasedChunks, &releasedAmount, &status); err != nil {
+			return ReleaseChunkResp{}, err
+		}
+		if status != "active" && status != "chunk_paying" {
+			return ReleaseChunkResp{}, fmt.Errorf("session status %s", status)
+		}
+		if req.Amount != chunkPrice {
+			return ReleaseChunkResp{}, fmt.Errorf("amount mismatch")
+		}
+		if req.ChunkIndex != releasedChunks {
+			return ReleaseChunkResp{}, fmt.Errorf("chunk_index must be next (%d)", releasedChunks)
+		}
+		releasedChunks++
+		releasedAmount += req.Amount
+		token := "rt_" + randHex(12)
+		if _, err := tx.Exec(`INSERT INTO release_tokens(session_id,chunk_index,release_token,used,created_at) VALUES(?,?,?,?,?)`, req.SessionID, req.ChunkIndex, token, 0, time.Now().Unix()); err != nil {
+			return ReleaseChunkResp{}, err
+		}
+		if _, err := tx.Exec(`UPDATE sessions SET released_chunks=?,released_amount=?,status='chunk_paying',updated_at=? WHERE session_id=?`, releasedChunks, releasedAmount, time.Now().Unix(), req.SessionID); err != nil {
+			return ReleaseChunkResp{}, err
+		}
+		return ReleaseChunkResp{SessionID: req.SessionID, ReleaseToken: token, ReleasedChunks: releasedChunks, ReleasedAmount: releasedAmount, Status: "chunk_paying"}, nil
+	})
 }
 
 func (s *Service) VerifyRelease(req VerifyReleaseReq) (VerifyReleaseResp, error) {
-	var token string
-	var used int
-	err := s.DB.QueryRow(`SELECT release_token,used FROM release_tokens WHERE session_id=? AND chunk_index=?`, req.SessionID, req.ChunkIndex).Scan(&token, &used)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+	return serviceDBTxValue(s, func(tx *sql.Tx) (VerifyReleaseResp, error) {
+		var token string
+		var used int
+		err := tx.QueryRow(`SELECT release_token,used FROM release_tokens WHERE session_id=? AND chunk_index=?`, req.SessionID, req.ChunkIndex).Scan(&token, &used)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return VerifyReleaseResp{Valid: false}, nil
+			}
+			return VerifyReleaseResp{}, err
+		}
+		if token != req.ReleaseToken || used == 1 {
 			return VerifyReleaseResp{Valid: false}, nil
 		}
-		return VerifyReleaseResp{}, err
-	}
-	if token != req.ReleaseToken || used == 1 {
-		return VerifyReleaseResp{Valid: false}, nil
-	}
-	_, _ = s.DB.Exec(`UPDATE release_tokens SET used=1 WHERE session_id=? AND chunk_index=?`, req.SessionID, req.ChunkIndex)
-	return VerifyReleaseResp{Valid: true}, nil
+		if _, err := tx.Exec(`UPDATE release_tokens SET used=1 WHERE session_id=? AND chunk_index=?`, req.SessionID, req.ChunkIndex); err != nil {
+			return VerifyReleaseResp{}, err
+		}
+		return VerifyReleaseResp{Valid: true}, nil
+	})
 }
 
 func (s *Service) CloseSession(req SessionCloseReq) (SessionCloseResp, error) {
-	if _, err := s.DB.Exec(`UPDATE sessions SET status='finalized',updated_at=? WHERE session_id=?`, time.Now().Unix(), req.SessionID); err != nil {
-		return SessionCloseResp{}, err
-	}
-	return SessionCloseResp{SessionID: req.SessionID, Status: "finalized"}, nil
+	return serviceDBValue(s, func(db *sql.DB) (SessionCloseResp, error) {
+		if _, err := db.Exec(`UPDATE sessions SET status='finalized',updated_at=? WHERE session_id=?`, time.Now().Unix(), req.SessionID); err != nil {
+			return SessionCloseResp{}, err
+		}
+		return SessionCloseResp{SessionID: req.SessionID, Status: "finalized"}, nil
+	})
 }
 
 func (s *Service) Dispute(req DisputeReq) (DisputeResp, error) {
-	if req.SessionID == "" {
-		return DisputeResp{}, fmt.Errorf("session_id required")
-	}
-	caseID := "case_" + randHex(8)
-	if _, err := s.DB.Exec(`UPDATE sessions SET status='dispute',updated_at=? WHERE session_id=?`, time.Now().Unix(), req.SessionID); err != nil {
-		return DisputeResp{}, err
-	}
-	return DisputeResp{SessionID: req.SessionID, CaseID: caseID, Status: "dispute"}, nil
+	return serviceDBValue(s, func(db *sql.DB) (DisputeResp, error) {
+		if req.SessionID == "" {
+			return DisputeResp{}, fmt.Errorf("session_id required")
+		}
+		caseID := "case_" + randHex(8)
+		if _, err := db.Exec(`UPDATE sessions SET status='dispute',updated_at=? WHERE session_id=?`, time.Now().Unix(), req.SessionID); err != nil {
+			return DisputeResp{}, err
+		}
+		return DisputeResp{SessionID: req.SessionID, CaseID: caseID, Status: "dispute"}, nil
+	})
 }
 
 func randHex(n int) string {

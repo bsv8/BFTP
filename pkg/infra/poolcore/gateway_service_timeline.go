@@ -38,57 +38,57 @@ func (s *GatewayService) MarkClientOffline(clientID string, peerID string, reaso
 func (s *GatewayService) SyncServiceStateByClient(clientID string, reason string, spendTxID string, peerID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.DB == nil {
-		return fmt.Errorf("db not initialized")
-	}
-	return syncServiceStateTx(s.DB, clientID, nil, reason, spendTxID, peerID)
+	_, err := gatewayServiceDBValue(s, func(db *sql.DB) (struct{}, error) {
+		return struct{}{}, syncServiceStateTx(db, clientID, nil, reason, spendTxID, peerID)
+	})
+	return err
 }
 
 func (s *GatewayService) ReconcileServiceStates(reason string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.DB == nil {
-		return fmt.Errorf("db not initialized")
-	}
-	rows, err := s.DB.Query(
-		`SELECT client_pubkey_hex FROM fee_pool_sessions
-		 UNION
-		 SELECT client_pubkey_hex FROM fee_pool_client_presence`,
-	)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	clients := make([]string, 0, 32)
-	for rows.Next() {
-		var clientID string
-		if err := rows.Scan(&clientID); err != nil {
-			return err
+	_, err := gatewayServiceDBValue(s, func(db *sql.DB) (struct{}, error) {
+		rows, err := db.Query(
+			`SELECT client_pubkey_hex FROM fee_pool_sessions
+			 UNION
+			 SELECT client_pubkey_hex FROM fee_pool_client_presence`,
+		)
+		if err != nil {
+			return struct{}{}, err
 		}
-		clientID = NormalizeClientIDLoose(clientID)
-		if clientID == "" {
-			continue
+		defer rows.Close()
+		clients := make([]string, 0, 32)
+		for rows.Next() {
+			var clientID string
+			if err := rows.Scan(&clientID); err != nil {
+				return struct{}{}, err
+			}
+			clientID = NormalizeClientIDLoose(clientID)
+			if clientID == "" {
+				continue
+			}
+			clients = append(clients, clientID)
 		}
-		clients = append(clients, clientID)
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	for _, clientID := range clients {
-		if err := syncServiceStateTx(s.DB, clientID, nil, reason, "", ""); err != nil {
-			return err
+		if err := rows.Err(); err != nil {
+			return struct{}{}, err
 		}
-	}
-	return nil
+		for _, clientID := range clients {
+			if err := syncServiceStateTx(db, clientID, nil, reason, "", ""); err != nil {
+				return struct{}{}, err
+			}
+		}
+		return struct{}{}, nil
+	})
+	return err
 }
 
 func (s *GatewayService) markClientPresence(clientID string, peerID string, online bool, reason string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.DB == nil {
-		return fmt.Errorf("db not initialized")
-	}
-	return syncServiceStateTx(s.DB, clientID, &online, reason, "", peerID)
+	_, err := gatewayServiceDBValue(s, func(db *sql.DB) (struct{}, error) {
+		return struct{}{}, syncServiceStateTx(db, clientID, &online, reason, "", peerID)
+	})
+	return err
 }
 
 func syncServiceStateTx(db *sql.DB, clientID string, onlineOverride *bool, reason string, spendTxID string, peerID string) error {

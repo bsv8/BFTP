@@ -12,6 +12,7 @@ import (
 	ec "github.com/bsv-blockchain/go-sdk/primitives/ec"
 	tx "github.com/bsv-blockchain/go-sdk/transaction"
 	"github.com/bsv8/BFTP/pkg/infra/payflow"
+	"github.com/bsv8/BFTP/pkg/infra/sqliteactor"
 	"github.com/bsv8/BFTP/pkg/obs"
 	ce "github.com/bsv8/MultisigPool/pkg/dual_endpoint"
 	"github.com/bsv8/MultisigPool/pkg/libs"
@@ -34,6 +35,7 @@ type GatewayParams struct {
 
 type GatewayService struct {
 	DB    *sql.DB
+	Actor *sqliteactor.Actor
 	Chain ChainClient
 
 	ServerPrivHex string
@@ -54,6 +56,22 @@ const (
 	defaultPayGuardBlocks    = uint32(1)
 	baseTxSafetyExtraBlocks  = uint32(1)
 )
+
+type gatewaySessionLookup struct {
+	Row   GatewaySessionRow
+	Found bool
+}
+
+type gatewayQuoteValidationResult struct {
+	Offer     payflow.ServiceOffer
+	Quote     payflow.ServiceQuote
+	QuoteHash string
+}
+
+type gatewayProofPayloadResult struct {
+	ProofPayload []byte
+	ReceiptProof []byte
+}
 
 func (s *GatewayService) Info(clientID string) (InfoResp, error) {
 	if _, err := NormalizeClientIDStrict(clientID); err != nil {
@@ -159,7 +177,12 @@ func (s *GatewayService) Create(req CreateReq) (CreateResp, error) {
 	// 幂等边界：
 	// - pending_base_tx / active：允许按同一 spend_txid 重入，便于客户端重试；
 	// - frozen / closed / close_submitted 等：必须立刻拒绝，否则客户端会误以为还能继续 base_tx。
-	if old, found, loadErr := LoadSessionBySpendTxID(s.DB, spendTxID); loadErr == nil && found {
+	lookup, loadErr := gatewayServiceDBValue(s, func(db *sql.DB) (gatewaySessionLookup, error) {
+		row, found, err := LoadSessionBySpendTxID(db, spendTxID)
+		return gatewaySessionLookup{Row: row, Found: found}, err
+	})
+	if loadErr == nil && lookup.Found {
+		old := lookup.Row
 		if old.ClientID != clientBSVPubHex {
 			return CreateResp{}, fmt.Errorf("spend_txid already exists for another client")
 		}
@@ -193,7 +216,9 @@ func (s *GatewayService) Create(req CreateReq) (CreateResp, error) {
 		CurrentTxHex:              mergedTx.Hex(),
 		LifecycleState:            lifecyclePendingBaseTx,
 	}
-	if err := InsertSession(s.DB, row); err != nil {
+	if _, err := gatewayServiceDBValue(s, func(db *sql.DB) (struct{}, error) {
+		return struct{}{}, InsertSession(db, row)
+	}); err != nil {
 		return CreateResp{}, err
 	}
 	obs.Business("bitcast-gateway", "fee_pool_create_ok", map[string]any{
@@ -219,13 +244,17 @@ func (s *GatewayService) BaseTx(req BaseTxReq) (BaseTxResp, error) {
 	if strings.TrimSpace(req.ClientID) == "" {
 		return BaseTxResp{}, fmt.Errorf("client_pubkey_hex required")
 	}
-	row, found, err := LoadSessionBySpendTxID(s.DB, req.SpendTxID)
+	lookup, err := gatewayServiceDBValue(s, func(db *sql.DB) (gatewaySessionLookup, error) {
+		row, found, err := LoadSessionBySpendTxID(db, req.SpendTxID)
+		return gatewaySessionLookup{Row: row, Found: found}, err
+	})
 	if err != nil {
 		return BaseTxResp{}, err
 	}
-	if !found {
+	if !lookup.Found {
 		return BaseTxResp{Success: false, Status: "not_found", Error: "session not found by spend_txid"}, nil
 	}
+	row := lookup.Row
 	if row.LifecycleState != lifecyclePendingBaseTx && row.LifecycleState != lifecycleActive {
 		return BaseTxResp{Success: false, Status: row.LifecycleState, Error: "session lifecycle does not allow base_tx"}, nil
 	}
@@ -287,34 +316,32 @@ func (s *GatewayService) BaseTx(req BaseTxReq) (BaseTxResp, error) {
 	row.LifecycleState = lifecycleActive
 	row.FrozenReason = ""
 	nowUnix := time.Now().Unix()
-	sqlTx, err := s.DB.Begin()
-	if err != nil {
-		return BaseTxResp{}, err
-	}
-	if err := FreezeOtherActiveSessionsByClientTx(sqlTx, row.ClientID, row.SpendTxID, "superseded_by_new_pool", nowUnix); err != nil {
-		_ = sqlTx.Rollback()
-		return BaseTxResp{}, err
-	}
-	if _, err := sqlTx.Exec(
-		`UPDATE fee_pool_sessions
-		 SET sequence_num=?,server_amount_satoshi=?,client_amount_satoshi=?,base_txid=?,final_txid=?,base_tx_hex=?,current_tx_hex=?,lifecycle_state=?,frozen_reason=?,last_submit_error=?,submit_retry_count=?,last_submit_attempt_at_unix=?,updated_at_unix=?
-		 WHERE spend_txid=?`,
-		row.Sequence, row.ServerAmountSat, row.ClientAmountSat,
-		strings.TrimSpace(row.BaseTxID), strings.TrimSpace(row.FinalTxID),
-		row.BaseTxHex, row.CurrentTxHex,
-		row.LifecycleState, row.FrozenReason, row.LastSubmitError, row.SubmitRetryCount, row.LastSubmitAttemptAtUnix, nowUnix,
-		strings.TrimSpace(row.SpendTxID),
-	); err != nil {
-		_ = sqlTx.Rollback()
-		return BaseTxResp{}, err
-	}
-	if err := sqlTx.Commit(); err != nil {
+	if _, err := gatewayServiceDBTxValue(s, func(sqlTx *sql.Tx) (struct{}, error) {
+		if err := FreezeOtherActiveSessionsByClientTx(sqlTx, row.ClientID, row.SpendTxID, "superseded_by_new_pool", nowUnix); err != nil {
+			return struct{}{}, err
+		}
+		if _, err := sqlTx.Exec(
+			`UPDATE fee_pool_sessions
+			 SET sequence_num=?,server_amount_satoshi=?,client_amount_satoshi=?,base_txid=?,final_txid=?,base_tx_hex=?,current_tx_hex=?,lifecycle_state=?,frozen_reason=?,last_submit_error=?,submit_retry_count=?,last_submit_attempt_at_unix=?,updated_at_unix=?
+			 WHERE spend_txid=?`,
+			row.Sequence, row.ServerAmountSat, row.ClientAmountSat,
+			strings.TrimSpace(row.BaseTxID), strings.TrimSpace(row.FinalTxID),
+			row.BaseTxHex, row.CurrentTxHex,
+			row.LifecycleState, row.FrozenReason, row.LastSubmitError, row.SubmitRetryCount, row.LastSubmitAttemptAtUnix, nowUnix,
+			strings.TrimSpace(row.SpendTxID),
+		); err != nil {
+			return struct{}{}, err
+		}
+		return struct{}{}, nil
+	}); err != nil {
 		return BaseTxResp{}, err
 	}
 	if err := s.ensureInitialOpenChargeEvent(row); err != nil {
 		return BaseTxResp{}, err
 	}
-	if err := syncServiceStateTx(s.DB, row.ClientID, nil, "session_activated", row.SpendTxID, ""); err != nil {
+	if _, err := gatewayServiceDBValue(s, func(db *sql.DB) (struct{}, error) {
+		return struct{}{}, syncServiceStateTx(db, row.ClientID, nil, "session_activated", row.SpendTxID, "")
+	}); err != nil {
 		return BaseTxResp{}, err
 	}
 	obs.Business("bitcast-gateway", "fee_pool_base_tx_broadcasted", map[string]any{
@@ -330,13 +357,17 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 	if s.DB == nil {
 		return PayConfirmResp{}, fmt.Errorf("db not initialized")
 	}
-	row, found, err := LoadSessionBySpendTxID(s.DB, req.SpendTxID)
+	lookup, err := gatewayServiceDBValue(s, func(db *sql.DB) (gatewaySessionLookup, error) {
+		row, found, err := LoadSessionBySpendTxID(db, req.SpendTxID)
+		return gatewaySessionLookup{Row: row, Found: found}, err
+	})
 	if err != nil {
 		return PayConfirmResp{}, err
 	}
-	if !found {
+	if !lookup.Found {
 		return PayConfirmResp{Success: false, Status: "not_found", Error: "session not found by spend_txid"}, nil
 	}
+	row := lookup.Row
 	if err := ensureActivePoolGate(row); err != nil {
 		return payReject(row.LifecycleState, "not_active_pool", "session lifecycle does not allow pay"), nil
 	}
@@ -372,11 +403,18 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 		if len(req.ServiceQuote) == 0 {
 			return payReject(row.LifecycleState, "service_quote_required", "service quote required"), nil
 		}
-		_, quoted, _, err := validateServiceQuoteAgainstPay(s.DB, row, req)
+		validation, err := gatewayServiceDBValue(s, func(db *sql.DB) (gatewayQuoteValidationResult, error) {
+			offer, quote, quoteHash, err := validateServiceQuoteAgainstPay(db, row, req)
+			return gatewayQuoteValidationResult{
+				Offer:     offer,
+				Quote:     quote,
+				QuoteHash: quoteHash,
+			}, err
+		})
 		if err != nil {
 			return payReject(row.LifecycleState, "service_quote_invalid", err.Error()), nil
 		}
-		boundQuote = quoted
+		boundQuote = validation.Quote
 	}
 	if req.ChargeAmountSatoshi != delta {
 		return payReject(row.LifecycleState, "fee_amount_mismatch", fmt.Sprintf("charge amount must equal server_amount delta: charge=%d delta=%d", req.ChargeAmountSatoshi, delta)), nil
@@ -408,10 +446,17 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 	if err != nil {
 		return payReject(row.LifecycleState, "invalid_tx_update", "rebuild updated tx failed: "+err.Error()), nil
 	}
-	proofPayload, _, err := buildPayConfirmProofPayload(s.DB, row, req, updatedTx.Hex())
+	proofResult, err := gatewayServiceDBValue(s, func(db *sql.DB) (gatewayProofPayloadResult, error) {
+		proofPayload, receiptProof, err := buildPayConfirmProofPayload(db, row, req, updatedTx.Hex())
+		return gatewayProofPayloadResult{
+			ProofPayload: proofPayload,
+			ReceiptProof: receiptProof,
+		}, err
+	})
 	if err != nil {
 		return payReject(row.LifecycleState, "proof_invalid", err.Error()), nil
 	}
+	proofPayload := proofResult.ProofPayload
 	updatedTxForSign := updatedTx
 	if proofPayload != nil {
 		updatedTxForSign, err = ce.LoadTxWithProof(
@@ -461,9 +506,6 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 	row.Sequence = req.SequenceNumber
 	row.ServerAmountSat = req.ServerAmount
 	row.ClientAmountSat = row.PoolAmountSat - row.ServerAmountSat - row.SpendTxFeeSat
-	if err := UpdateSession(s.DB, row); err != nil {
-		return PayConfirmResp{}, err
-	}
 	nowUnix := time.Now().Unix()
 	billingCycleSeconds := s.Params.BillingCycleSeconds
 	effectiveUntilUnix := nowUnix
@@ -478,17 +520,25 @@ func (s *GatewayService) PayConfirm(req PayConfirmReq) (PayConfirmResp, error) {
 		billingCycleSeconds = uint32(grantedDuration)
 		effectiveUntilUnix = nowUnix + int64(grantedDuration)
 	}
-	if err := InsertChargeEvent(
-		s.DB,
-		row.ClientID,
-		row.SpendTxID,
-		row.Sequence,
-		chargeReason,
-		req.ChargeAmountSatoshi,
-		billingCycleSeconds,
-		effectiveUntilUnix,
-		row.ClientAmountSat,
-	); err != nil {
+	if _, err := gatewayServiceDBTxValue(s, func(sqlTx *sql.Tx) (struct{}, error) {
+		if err := UpdateSessionTx(sqlTx, row); err != nil {
+			return struct{}{}, err
+		}
+		if err := InsertChargeEventTx(
+			sqlTx,
+			row.ClientID,
+			row.SpendTxID,
+			row.Sequence,
+			chargeReason,
+			req.ChargeAmountSatoshi,
+			billingCycleSeconds,
+			effectiveUntilUnix,
+			row.ClientAmountSat,
+		); err != nil {
+			return struct{}{}, err
+		}
+		return struct{}{}, nil
+	}); err != nil {
 		return PayConfirmResp{}, err
 	}
 	updatedTxID := mergedTx.TxID().String()
@@ -531,10 +581,12 @@ func (s *GatewayService) ensureInitialOpenChargeEvent(row GatewaySessionRow) err
 		return nil
 	}
 	var exists int
-	if err := s.DB.QueryRow(
-		`SELECT COUNT(1) FROM fee_pool_charge_events WHERE client_pubkey_hex=? AND spend_txid=? AND sequence_num=? AND charge_reason=?`,
-		row.ClientID, row.SpendTxID, 1, "listen_cycle_fee",
-	).Scan(&exists); err != nil {
+	if _, err := gatewayServiceDBValue(s, func(db *sql.DB) (struct{}, error) {
+		return struct{}{}, db.QueryRow(
+			`SELECT COUNT(1) FROM fee_pool_charge_events WHERE client_pubkey_hex=? AND spend_txid=? AND sequence_num=? AND charge_reason=?`,
+			row.ClientID, row.SpendTxID, 1, "listen_cycle_fee",
+		).Scan(&exists)
+	}); err != nil {
 		return err
 	}
 	if exists > 0 {
@@ -545,17 +597,20 @@ func (s *GatewayService) ensureInitialOpenChargeEvent(row GatewaySessionRow) err
 		return fmt.Errorf("billing_cycle_seconds must be configured for listen_cycle_fee")
 	}
 	effectiveUntilUnix := time.Now().Unix() + int64(billingCycleSeconds)
-	return InsertChargeEvent(
-		s.DB,
-		row.ClientID,
-		row.SpendTxID,
-		1,
-		"listen_cycle_fee",
-		row.ServerAmountSat,
-		billingCycleSeconds,
-		effectiveUntilUnix,
-		row.ClientAmountSat,
-	)
+	_, err := gatewayServiceDBValue(s, func(db *sql.DB) (struct{}, error) {
+		return struct{}{}, InsertChargeEvent(
+			db,
+			row.ClientID,
+			row.SpendTxID,
+			1,
+			"listen_cycle_fee",
+			row.ServerAmountSat,
+			billingCycleSeconds,
+			effectiveUntilUnix,
+			row.ClientAmountSat,
+		)
+	})
+	return err
 }
 
 func (s *GatewayService) Close(req CloseReq) (CloseResp, error) {
@@ -564,13 +619,17 @@ func (s *GatewayService) Close(req CloseReq) (CloseResp, error) {
 	if s.DB == nil || s.Chain == nil {
 		return CloseResp{}, fmt.Errorf("service not initialized")
 	}
-	row, found, err := LoadSessionBySpendTxID(s.DB, req.SpendTxID)
+	lookup, err := gatewayServiceDBValue(s, func(db *sql.DB) (gatewaySessionLookup, error) {
+		row, found, err := LoadSessionBySpendTxID(db, req.SpendTxID)
+		return gatewaySessionLookup{Row: row, Found: found}, err
+	})
 	if err != nil {
 		return CloseResp{}, err
 	}
-	if !found {
+	if !lookup.Found {
 		return CloseResp{Success: false, Status: "not_found", Error: "session not found by spend_txid"}, nil
 	}
+	row := lookup.Row
 	if row.LifecycleState == lifecycleClosed && row.FinalTxID != "" {
 		return CloseResp{Success: true, Status: "closed", Broadcasted: true, FinalSpendTxID: row.FinalTxID}, nil
 	}
@@ -662,16 +721,27 @@ func (s *GatewayService) State(req StateReq) (StateResp, error) {
 	var row GatewaySessionRow
 	var found bool
 	if strings.TrimSpace(req.SpendTxID) != "" {
-		row, found, err = LoadSessionBySpendTxID(s.DB, req.SpendTxID)
+		lookup, loadErr := gatewayServiceDBValue(s, func(db *sql.DB) (gatewaySessionLookup, error) {
+			foundRow, found, err := LoadSessionBySpendTxID(db, req.SpendTxID)
+			return gatewaySessionLookup{Row: foundRow, Found: found}, err
+		})
+		row, found, err = lookup.Row, lookup.Found, loadErr
 	} else {
-		row, found, err = LoadPreferredSessionByClientID(s.DB, clientID)
+		lookup, loadErr := gatewayServiceDBValue(s, func(db *sql.DB) (gatewaySessionLookup, error) {
+			foundRow, found, err := LoadPreferredSessionByClientID(db, clientID)
+			return gatewaySessionLookup{Row: foundRow, Found: found}, err
+		})
+		row, found, err = lookup.Row, lookup.Found, loadErr
 		if err == nil && found && row.LifecycleState == lifecycleActive {
 			if _, phase, payability, _, pErr := s.queryPhase(row); pErr == nil && phase == phasePayable && payability == payabilityPayable {
 				// 命中默认优先池：当前唯一可付费会话。
 			} else {
-				latest, ok, lErr := LoadLatestNonClosedSessionByClientID(s.DB, clientID)
-				if lErr == nil && ok {
-					row = latest
+				latestLookup, lErr := gatewayServiceDBValue(s, func(db *sql.DB) (gatewaySessionLookup, error) {
+					foundRow, found, err := LoadLatestNonClosedSessionByClientID(db, clientID)
+					return gatewaySessionLookup{Row: foundRow, Found: found}, err
+				})
+				if lErr == nil && latestLookup.Found {
+					row = latestLookup.Row
 					found = true
 				}
 			}
@@ -754,7 +824,9 @@ func (s *GatewayService) PassiveCloseExpiredOnce() error {
 		return fmt.Errorf("query tip height failed: %w", err)
 	}
 	// 旧库里可能残留 close_submitted；这里顺手收口为 closed，但新流程不再写入它。
-	rows, err := ListSessionsByLifecycleStates(s.DB, lifecycleActive, lifecycleFrozen, lifecycleShouldSubmit, lifecycleCloseSubmitted)
+	rows, err := gatewayServiceDBValue(s, func(db *sql.DB) ([]GatewaySessionRow, error) {
+		return ListSessionsByLifecycleStates(db, lifecycleActive, lifecycleFrozen, lifecycleShouldSubmit, lifecycleCloseSubmitted)
+	})
 	if err != nil {
 		return err
 	}
@@ -786,7 +858,9 @@ func (s *GatewayService) PassiveCloseExpiredOnce() error {
 			if row.LifecycleState != lifecycleActive {
 				row.LifecycleState = lifecycleActive
 				row.FrozenReason = ""
-				if uErr := UpdateSession(s.DB, row); uErr != nil {
+				if _, uErr := gatewayServiceDBValue(s, func(db *sql.DB) (struct{}, error) {
+					return struct{}{}, UpdateSession(db, row)
+				}); uErr != nil {
 					return uErr
 				}
 			}
@@ -795,7 +869,9 @@ func (s *GatewayService) PassiveCloseExpiredOnce() error {
 			if row.LifecycleState != lifecycleFrozen {
 				row.LifecycleState = lifecycleFrozen
 				row.FrozenReason = "near_expiry"
-				if uErr := UpdateSession(s.DB, row); uErr != nil {
+				if _, uErr := gatewayServiceDBValue(s, func(db *sql.DB) (struct{}, error) {
+					return struct{}{}, UpdateSession(db, row)
+				}); uErr != nil {
 					return uErr
 				}
 			}
@@ -805,7 +881,9 @@ func (s *GatewayService) PassiveCloseExpiredOnce() error {
 		if row.LifecycleState != lifecycleShouldSubmit {
 			row.LifecycleState = lifecycleShouldSubmit
 			row.FrozenReason = "should_submit"
-			if uErr := UpdateSession(s.DB, row); uErr != nil {
+			if _, uErr := gatewayServiceDBValue(s, func(db *sql.DB) (struct{}, error) {
+				return struct{}{}, UpdateSession(db, row)
+			}); uErr != nil {
 				return uErr
 			}
 		}
@@ -818,7 +896,9 @@ func (s *GatewayService) PassiveCloseExpiredOnce() error {
 				row.LifecycleState = lifecycleSettledExtern
 				row.FrozenReason = "broadcast_conflict"
 			}
-			if uErr := UpdateSession(s.DB, row); uErr != nil {
+			if _, uErr := gatewayServiceDBValue(s, func(db *sql.DB) (struct{}, error) {
+				return struct{}{}, UpdateSession(db, row)
+			}); uErr != nil {
 				return uErr
 			}
 			obs.Error("bitcast-gateway", "fee_pool_passive_close_broadcast_failed", map[string]any{
@@ -879,10 +959,15 @@ func (s *GatewayService) markAcceptedClose(row *GatewaySessionRow, acceptReason 
 		acceptReason = "broadcast_accepted"
 	}
 	row.CloseObserveReason = acceptReason
-	if err := UpdateSession(s.DB, *row); err != nil {
-		return err
-	}
-	if err := syncServiceStateTx(s.DB, row.ClientID, nil, "session_closed", row.SpendTxID, ""); err != nil {
+	if _, err := gatewayServiceDBValue(s, func(db *sql.DB) (struct{}, error) {
+		if err := UpdateSession(db, *row); err != nil {
+			return struct{}{}, err
+		}
+		if err := syncServiceStateTx(db, row.ClientID, nil, "session_closed", row.SpendTxID, ""); err != nil {
+			return struct{}{}, err
+		}
+		return struct{}{}, nil
+	}); err != nil {
 		return err
 	}
 	return nil
@@ -964,11 +1049,13 @@ func (s *GatewayService) isUniqueActiveSession(clientID string, spendTxID string
 		return false
 	}
 	var n int
-	if err := s.DB.QueryRow(
-		`SELECT COUNT(*) FROM fee_pool_sessions WHERE client_pubkey_hex=? AND lifecycle_state='active' AND spend_txid<>?`,
-		clientID,
-		strings.TrimSpace(spendTxID),
-	).Scan(&n); err != nil {
+	if _, err := gatewayServiceDBValue(s, func(db *sql.DB) (struct{}, error) {
+		return struct{}{}, db.QueryRow(
+			`SELECT COUNT(*) FROM fee_pool_sessions WHERE client_pubkey_hex=? AND lifecycle_state='active' AND spend_txid<>?`,
+			clientID,
+			strings.TrimSpace(spendTxID),
+		).Scan(&n)
+	}); err != nil {
 		return false
 	}
 	return n == 0
