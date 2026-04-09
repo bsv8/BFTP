@@ -61,11 +61,13 @@ func Open(path string, debug bool) (*Opened, error) {
 	}
 	dsn := appendPragma(path, "journal_mode(WAL)")
 	dsn = appendQueryValue(dsn, "_txlock", "immediate")
-	driverName := "sqlite"
-	if sqlTraceEnabled(debug) {
-		registerTraceDriverOnce.Do(registerTraceDriver)
-		driverName = traceDriverName
-	}
+	// 运行时统一走带参数规范化的入口。
+	// 说明：
+	// - 这里不再让业务侧直接碰底层 sqlite driver；
+	// - trace 只是观测能力，参数收口必须始终开启；
+	// - debug 只影响外层是否挂观测，不影响参数规范化这层硬约束。
+	registerTraceDriverOnce.Do(registerTraceDriver)
+	driverName := traceDriverName
 	db, err := sql.Open(driverName, dsn)
 	if err != nil {
 		return nil, err

@@ -199,10 +199,6 @@ func traceSink() TraceSink {
 	return traceHub.sink
 }
 
-func sqlTraceEnabled(debug bool) bool {
-	return debug
-}
-
 func registerTraceDriver() {
 	sql.Register(traceDriverName, traceDriver{base: &sqliteDriver.Driver{}})
 }
@@ -316,10 +312,7 @@ func (c *traceConn) ResetSession(ctx context.Context) error {
 }
 
 func (c *traceConn) CheckNamedValue(nv *driver.NamedValue) error {
-	if checker, ok := c.base.(driver.NamedValueChecker); ok {
-		return checker.CheckNamedValue(nv)
-	}
-	return nil
+	return normalizeNamedValue(nv)
 }
 
 func execOnConn(base driver.Conn, ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
@@ -327,9 +320,9 @@ func execOnConn(base driver.Conn, ctx context.Context, query string, args []driv
 		return execer.ExecContext(ctx, query, args)
 	}
 	if execer, ok := base.(driver.Execer); ok {
-		values := make([]driver.Value, 0, len(args))
-		for _, arg := range args {
-			values = append(values, arg.Value)
+		values, err := normalizeNamedValues(args)
+		if err != nil {
+			return nil, err
 		}
 		return execer.Exec(query, values)
 	}
@@ -341,9 +334,9 @@ func queryOnConn(base driver.Conn, ctx context.Context, query string, args []dri
 		return q.QueryContext(ctx, query, args)
 	}
 	if q, ok := base.(driver.Queryer); ok {
-		values := make([]driver.Value, 0, len(args))
-		for _, arg := range args {
-			values = append(values, arg.Value)
+		values, err := normalizeNamedValues(args)
+		if err != nil {
+			return nil, err
 		}
 		return q.Query(query, values)
 	}
