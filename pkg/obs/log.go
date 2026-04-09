@@ -20,6 +20,7 @@ const (
 
 	CategorySystem   = "system"
 	CategoryBusiness = "business"
+	CategorySQL      = "sql_trace"
 )
 
 type Event struct {
@@ -151,6 +152,10 @@ func Important(service, name string, fields map[string]any) {
 
 func Error(service, name string, fields map[string]any) {
 	write(LevelError, CategorySystem, service, name, fields)
+}
+
+func SQL(service, name string, fields map[string]any) {
+	write(LevelInfo, CategorySQL, service, name, fields)
 }
 
 func write(level, category, service, name string, fields map[string]any) {

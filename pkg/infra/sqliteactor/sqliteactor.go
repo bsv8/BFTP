@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-
-	_ "modernc.org/sqlite"
 )
 
 type Opened struct {
@@ -56,14 +54,19 @@ type actorResponse struct {
 // - 这里强制 `SetMaxOpenConns(1)` / `SetMaxIdleConns(1)`，把物理连接压成 1 条；
 // - 保留 WAL，但 WAL 只改善读写关系，不代表可以随便并发写；
 // - `busy_timeout` / retry 不作为主方案，主方案是结构上避免竞争。
-func Open(path string) (*Opened, error) {
+func Open(path string, debug bool) (*Opened, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return nil, fmt.Errorf("sqlite path is empty")
 	}
 	dsn := appendPragma(path, "journal_mode(WAL)")
 	dsn = appendQueryValue(dsn, "_txlock", "immediate")
-	db, err := sql.Open("sqlite", dsn)
+	driverName := "sqlite"
+	if sqlTraceEnabled(debug) {
+		registerTraceDriverOnce.Do(registerTraceDriver)
+		driverName = traceDriverName
+	}
+	db, err := sql.Open(driverName, dsn)
 	if err != nil {
 		return nil, err
 	}
