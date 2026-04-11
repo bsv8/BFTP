@@ -161,10 +161,10 @@ func SQL(service, name string, fields map[string]any) {
 func write(level, category, service, name string, fields map[string]any) {
 	var compacted map[string]any
 	if fields != nil {
-		if m, ok := CompactAny(fields).(map[string]any); ok {
+		if m, ok := NormalizeAny(fields).(map[string]any); ok {
 			compacted = m
 		} else {
-			compacted = map[string]any{"_": CompactAny(fields)}
+			compacted = map[string]any{"_": NormalizeAny(fields)}
 		}
 	}
 	ev := Event{

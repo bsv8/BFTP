@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/hex"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -493,11 +494,11 @@ func sanitizeTraceValue(v any) any {
 	case nil:
 		return nil
 	case []byte:
-		return compactTraceBytes(x)
+		return hex.EncodeToString(x)
 	case string:
-		return compactTraceString(x)
+		return x
 	case fmt.Stringer:
-		return compactTraceString(x.String())
+		return x.String()
 	case bool:
 		return x
 	case int, int8, int16, int32, int64:
@@ -507,48 +508,8 @@ func sanitizeTraceValue(v any) any {
 	case float32, float64:
 		return x
 	default:
-		return compactTraceString(fmt.Sprint(v))
+		return fmt.Sprint(v)
 	}
-}
-
-func compactTraceString(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return s
-	}
-	if isHexLikeString(s) && len(s) > 16 {
-		return s[:8] + "..." + s[len(s)-8:]
-	}
-	if len(s) <= 64 {
-		return s
-	}
-	return s[:4] + "..." + s[len(s)-4:]
-}
-
-func compactTraceBytes(b []byte) string {
-	if len(b) == 0 {
-		return ""
-	}
-	if len(b) <= 8 {
-		return fmt.Sprintf("%x", b)
-	}
-	return fmt.Sprintf("%x...%x", b[:4], b[len(b)-4:])
-}
-
-func isHexLikeString(s string) bool {
-	if len(s)%2 != 0 {
-		return false
-	}
-	for _, r := range s {
-		switch {
-		case r >= '0' && r <= '9':
-		case r >= 'a' && r <= 'f':
-		case r >= 'A' && r <= 'F':
-		default:
-			return false
-		}
-	}
-	return true
 }
 
 func traceErrString(err error) string {
