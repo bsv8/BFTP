@@ -9,7 +9,6 @@ const (
 
 const (
 	RouteNodeV1CapabilitiesShow = "node.v1.capabilities_show"
-	RoutePaymentV1Quote         = "payment.v1.quote"
 	RoutePoolV1Info             = "pool.v1.info"
 	RoutePoolV1Create           = "pool.v1.create"
 	RoutePoolV1BaseTx           = "pool.v1.base_tx"
