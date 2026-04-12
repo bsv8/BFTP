@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -191,7 +193,7 @@ func write(level, category, service, name string, fields map[string]any) {
 		}
 	}
 	if rank(level) >= state.consoleMinRank {
-		fmt.Println(line)
+		fmt.Println(formatConsoleLine(ev))
 	}
 	if len(state.listeners) > 0 {
 		ls = make([]func(Event), 0, len(state.listeners))
@@ -206,6 +208,59 @@ func write(level, category, service, name string, fields map[string]any) {
 			defer func() { _ = recover() }()
 			fn(ev)
 		}()
+	}
+}
+
+func formatConsoleLine(ev Event) string {
+	var b strings.Builder
+	b.WriteString("[")
+	b.WriteString(strings.TrimSpace(ev.Level))
+	b.WriteString("][")
+	b.WriteString(strings.TrimSpace(ev.Category))
+	b.WriteString("][")
+	b.WriteString(strings.TrimSpace(ev.Service))
+	b.WriteString("] ")
+	b.WriteString(strings.TrimSpace(ev.Name))
+	if len(ev.Fields) == 0 {
+		return b.String()
+	}
+	keys := make([]string, 0, len(ev.Fields))
+	for k := range ev.Fields {
+		k = strings.TrimSpace(k)
+		if k == "" {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		b.WriteString(" ")
+		b.WriteString(k)
+		b.WriteString("=")
+		b.WriteString(formatConsoleValue(ev.Fields[k]))
+	}
+	return b.String()
+}
+
+func formatConsoleValue(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return "null"
+	case string:
+		s := strings.TrimSpace(x)
+		if s == "" {
+			return `""`
+		}
+		if strings.ContainsAny(s, " \t\r\n") {
+			return strconv.Quote(s)
+		}
+		return s
+	default:
+		raw, err := json.Marshal(x)
+		if err != nil {
+			return strconv.Quote(fmt.Sprint(x))
+		}
+		return string(raw)
 	}
 }
 
