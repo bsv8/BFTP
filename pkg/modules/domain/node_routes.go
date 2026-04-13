@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	bfterrors "github.com/bsv8/BFTP-contract/pkg/v1/errors"
 	ncall "github.com/bsv8/BFTP/pkg/infra/ncall"
 )
 
@@ -120,9 +121,9 @@ func HandleNodeCall(ctx context.Context, rt NodeRouteRuntime, meta ncall.CallCon
 }
 
 func badRequestResp(message string) ncall.CallResp {
-	return ncall.CallResp{Ok: false, Code: "BAD_REQUEST", Message: message}
+	return ncall.CallResp{Ok: false, Code: string(bfterrors.CodeBadRequest), Message: message}
 }
 
 func routeNotFoundResp() ncall.CallResp {
-	return ncall.CallResp{Ok: false, Code: "ROUTE_NOT_FOUND", Message: "route not found"}
+	return ncall.CallResp{Ok: false, Code: string(bfterrors.CodeRouteNotFound), Message: "route not found"}
 }

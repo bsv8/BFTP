@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	bfterrors "github.com/bsv8/BFTP-contract/pkg/v1/errors"
 	ncall "github.com/bsv8/BFTP/pkg/infra/ncall"
 	"github.com/bsv8/BFTP/pkg/infra/pproto"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -79,5 +80,5 @@ func ChainNodeCall(showBody func() ncall.CapabilitiesShowBody, segments ...NodeC
 }
 
 func routeNotFoundResp() ncall.CallResp {
-	return ncall.CallResp{Ok: false, Code: "ROUTE_NOT_FOUND", Message: "route not found"}
+	return ncall.CallResp{Ok: false, Code: string(bfterrors.CodeRouteNotFound), Message: "route not found"}
 }

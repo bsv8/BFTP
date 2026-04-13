@@ -1,10 +1,12 @@
 package broadcast
 
+import contractroute "github.com/bsv8/BFTP-contract/pkg/v1/route"
+
 const (
-	RouteBroadcastV1ListenCycle              = "broadcast.v1.listen_cycle"
-	RouteBroadcastV1DemandPublish            = "broadcast.v1.demand_publish"
-	RouteBroadcastV1DemandPublishBatch       = "broadcast.v1.demand_publish_batch"
-	RouteBroadcastV1LiveDemandPublish        = "broadcast.v1.live_demand_publish"
-	RouteBroadcastV1NodeReachabilityAnnounce = "broadcast.v1.node_reachability_announce"
-	RouteBroadcastV1NodeReachabilityQuery    = "broadcast.v1.node_reachability_query"
+	RouteBroadcastV1ListenCycle              = string(contractroute.RouteBroadcastV1ListenCycle)
+	RouteBroadcastV1DemandPublish            = string(contractroute.RouteBroadcastV1DemandPublish)
+	RouteBroadcastV1DemandPublishBatch       = string(contractroute.RouteBroadcastV1DemandPublishBatch)
+	RouteBroadcastV1LiveDemandPublish        = string(contractroute.RouteBroadcastV1LiveDemandPublish)
+	RouteBroadcastV1NodeReachabilityAnnounce = string(contractroute.RouteBroadcastV1NodeReachabilityAnnounce)
+	RouteBroadcastV1NodeReachabilityQuery    = string(contractroute.RouteBroadcastV1NodeReachabilityQuery)
 )

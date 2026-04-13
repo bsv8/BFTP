@@ -3,18 +3,21 @@ module github.com/bsv8/BFTP
 go 1.26
 
 require (
+	github.com/adraffy/go-ens-normalize v0.1.1
 	github.com/bsv-blockchain/go-sdk v1.2.18
+	github.com/bsv8/BFTP-contract v0.0.0
 	github.com/bsv8/MultisigPool v0.0.0
 	github.com/bsv8/WOCProxy v0.0.0
 	github.com/golang/protobuf v1.5.0
 	github.com/libp2p/go-libp2p v0.45.0
+	github.com/multiformats/go-multiaddr v0.16.0
 	modernc.org/sqlite v1.47.0
 )
 
 require (
-	github.com/adraffy/go-ens-normalize v0.1.1 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/ipfs/go-cid v0.5.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
@@ -24,7 +27,6 @@ require (
 	github.com/mr-tron/base58 v1.2.0 // indirect
 	github.com/multiformats/go-base32 v0.1.0 // indirect
 	github.com/multiformats/go-base36 v0.2.0 // indirect
-	github.com/multiformats/go-multiaddr v0.16.0 // indirect
 	github.com/multiformats/go-multibase v0.2.0 // indirect
 	github.com/multiformats/go-multicodec v0.9.1 // indirect
 	github.com/multiformats/go-multihash v0.2.3 // indirect
@@ -34,7 +36,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
-	golang.org/x/crypto v0.47.0 // indirect
+	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
@@ -47,5 +49,7 @@ require (
 replace github.com/bsv8/MultisigPool => ../MultisigPool
 
 replace github.com/bsv8/WOCProxy => ../WOCProxy
+
+replace github.com/bsv8/BFTP-contract => ../BFTP-contract
 
 replace github.com/libp2p/go-libp2p/core => github.com/libp2p/go-libp2p v0.45.0

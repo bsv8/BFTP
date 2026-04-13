@@ -1,21 +1,24 @@
 package domainmodule
 
-import "github.com/libp2p/go-libp2p/core/protocol"
-
-const (
-	ProtoResolveNamePaid protocol.ID = "/bsv-transfer/domain/resolve_name_paid/1.0.0"
-	ProtoQueryNamePaid   protocol.ID = "/bsv-transfer/domain/query_name_paid/1.0.0"
-	ProtoRegisterLock    protocol.ID = "/bsv-transfer/domain/register_lock_paid/1.0.0"
-	ProtoRegisterSubmit  protocol.ID = "/bsv-transfer/domain/register_submit/1.0.0"
-	ProtoSetTargetPaid   protocol.ID = "/bsv-transfer/domain/set_target_paid/1.0.0"
+import (
+	contractprotoid "github.com/bsv8/BFTP-contract/pkg/v1/protoid"
+	contractroute "github.com/bsv8/BFTP-contract/pkg/v1/route"
 )
 
 const (
-	RouteDomainV1Pricing        = "domain.v1.pricing"
-	RouteDomainV1Resolve        = "domain.v1.resolve"
-	RouteDomainV1Query          = "domain.v1.query"
-	RouteDomainV1Lock           = "domain.v1.lock"
-	RouteDomainV1ListOwned      = "domain.v1.list_owned"
-	RouteDomainV1SetTarget      = "domain.v1.set_target"
-	RouteDomainV1RegisterSubmit = "domain.v1.register_submit"
+	ProtoResolveNamePaid = contractprotoid.ProtoDomainResolveNamePaid
+	ProtoQueryNamePaid   = contractprotoid.ProtoDomainQueryNamePaid
+	ProtoRegisterLock    = contractprotoid.ProtoDomainRegisterLock
+	ProtoRegisterSubmit  = contractprotoid.ProtoDomainRegisterSubmit
+	ProtoSetTargetPaid   = contractprotoid.ProtoDomainSetTargetPaid
+)
+
+const (
+	RouteDomainV1Pricing        = string(contractroute.RouteDomainV1Pricing)
+	RouteDomainV1Resolve        = string(contractroute.RouteDomainV1Resolve)
+	RouteDomainV1Query          = string(contractroute.RouteDomainV1Query)
+	RouteDomainV1Lock           = string(contractroute.RouteDomainV1Lock)
+	RouteDomainV1ListOwned      = string(contractroute.RouteDomainV1ListOwned)
+	RouteDomainV1SetTarget      = string(contractroute.RouteDomainV1SetTarget)
+	RouteDomainV1RegisterSubmit = string(contractroute.RouteDomainV1RegisterSubmit)
 )
