@@ -23,6 +23,12 @@ const (
 	CategorySystem   = "system"
 	CategoryBusiness = "business"
 	CategorySQL      = "sql_trace"
+
+	// ServiceBitFSClient 是 BitFS 客户端统一服务名。
+	// 设计说明：
+	// - 所有进程内 obs 事件、测试断言和协议 domain 都从这里取值；
+	// - 这样改名只改一处，避免不同子项目各自漂移。
+	ServiceBitFSClient = "bitfs-client"
 )
 
 type Event struct {
