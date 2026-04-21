@@ -1,9 +1,12 @@
 package broadcast
 
-import "github.com/bsv8/BFTP/pkg/infra/caps"
+import (
+	contractprotoid "github.com/bsv8/BFTP-contract/pkg/v1/protoid"
+	"github.com/bsv8/BFTP/pkg/infra/caps"
+)
 
 const (
-	InternalAbilityID  = "bftp.broadcast@1"
+	InternalAbilityID = "bftp.broadcast@1"
 	PublicCapabilityID = "broadcast"
 	Version            = uint32(1)
 )
@@ -11,17 +14,21 @@ const (
 func Spec() caps.ModuleSpec {
 	return caps.ModuleSpec{
 		InternalAbility: InternalAbilityID,
-		PublicCapability: &caps.PublicCapability{
-			ID:      PublicCapabilityID,
-			Version: Version,
+		Capabilities: []caps.PublicCapability{
+			{ID: PublicCapabilityID, Version: Version, ProtocolID: string(contractprotoid.ProtoBroadcastV1ListenCycle)},
+			{ID: PublicCapabilityID, Version: Version, ProtocolID: string(contractprotoid.ProtoBroadcastV1DemandPublish)},
+			{ID: PublicCapabilityID, Version: Version, ProtocolID: string(contractprotoid.ProtoBroadcastV1DemandPublishBatch)},
+			{ID: PublicCapabilityID, Version: Version, ProtocolID: string(contractprotoid.ProtoBroadcastV1LiveDemandPublish)},
+			{ID: PublicCapabilityID, Version: Version, ProtocolID: string(contractprotoid.ProtoBroadcastV1NodeReachabilityAnnounce)},
+			{ID: PublicCapabilityID, Version: Version, ProtocolID: string(contractprotoid.ProtoBroadcastV1NodeReachabilityQuery)},
 		},
-		Routes: []string{
-			RouteBroadcastV1ListenCycle,
-			RouteBroadcastV1DemandPublish,
-			RouteBroadcastV1DemandPublishBatch,
-			RouteBroadcastV1LiveDemandPublish,
-			RouteBroadcastV1NodeReachabilityAnnounce,
-			RouteBroadcastV1NodeReachabilityQuery,
+		Protos: []string{
+			string(contractprotoid.ProtoBroadcastV1ListenCycle),
+			string(contractprotoid.ProtoBroadcastV1DemandPublish),
+			string(contractprotoid.ProtoBroadcastV1DemandPublishBatch),
+			string(contractprotoid.ProtoBroadcastV1LiveDemandPublish),
+			string(contractprotoid.ProtoBroadcastV1NodeReachabilityAnnounce),
+			string(contractprotoid.ProtoBroadcastV1NodeReachabilityQuery),
 		},
 	}
 }

@@ -1,9 +1,12 @@
 package domainmodule
 
-import "github.com/bsv8/BFTP/pkg/infra/caps"
+import (
+	contractprotoid "github.com/bsv8/BFTP-contract/pkg/v1/protoid"
+	"github.com/bsv8/BFTP/pkg/infra/caps"
+)
 
 const (
-	InternalAbilityID  = "bftp.domain@1"
+	InternalAbilityID = "bftp.domain@1"
 	PublicCapabilityID = "domain"
 	Version            = uint32(1)
 )
@@ -11,18 +14,23 @@ const (
 func Spec() caps.ModuleSpec {
 	return caps.ModuleSpec{
 		InternalAbility: InternalAbilityID,
-		PublicCapability: &caps.PublicCapability{
-			ID:      PublicCapabilityID,
-			Version: Version,
+		Capabilities: []caps.PublicCapability{
+			{ID: PublicCapabilityID, Version: Version, ProtocolID: string(contractprotoid.ProtoDomainPricing)},
+			{ID: PublicCapabilityID, Version: Version, ProtocolID: string(contractprotoid.ProtoDomainResolveNamePaid)},
+			{ID: PublicCapabilityID, Version: Version, ProtocolID: string(contractprotoid.ProtoDomainQueryNamePaid)},
+			{ID: PublicCapabilityID, Version: Version, ProtocolID: string(contractprotoid.ProtoDomainRegisterLock)},
+			{ID: PublicCapabilityID, Version: Version, ProtocolID: string(contractprotoid.ProtoDomainListOwned)},
+			{ID: PublicCapabilityID, Version: Version, ProtocolID: string(contractprotoid.ProtoDomainSetTargetPaid)},
+			{ID: PublicCapabilityID, Version: Version, ProtocolID: string(contractprotoid.ProtoDomainRegisterSubmit)},
 		},
-		Routes: []string{
-			RouteDomainV1Pricing,
-			RouteDomainV1Resolve,
-			RouteDomainV1Query,
-			RouteDomainV1Lock,
-			RouteDomainV1ListOwned,
-			RouteDomainV1SetTarget,
-			RouteDomainV1RegisterSubmit,
+		Protos: []string{
+			string(contractprotoid.ProtoDomainPricing),
+			string(contractprotoid.ProtoDomainResolveNamePaid),
+			string(contractprotoid.ProtoDomainQueryNamePaid),
+			string(contractprotoid.ProtoDomainRegisterLock),
+			string(contractprotoid.ProtoDomainListOwned),
+			string(contractprotoid.ProtoDomainSetTargetPaid),
+			string(contractprotoid.ProtoDomainRegisterSubmit),
 		},
 	}
 }

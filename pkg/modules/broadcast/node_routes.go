@@ -8,10 +8,6 @@ import (
 )
 
 // NodeRouteRuntime 描述 broadcast.v1.* 公开 node.call 路由在角色侧需要注入的运行时。
-// 设计说明：
-// - modules.broadcast 只收共享合同壳、解码和基础分发；
-// - 费用池扣费、公告落库、广播 fanout 仍留在 gateway 角色里；
-// - 这样公告合同和宿主实现能继续解耦。
 type NodeRouteRuntime struct {
 	ListenCycle              func(context.Context, ncall.CallContext, ncall.CallReq, ListenCycleReq) (ncall.CallResp, error)
 	DemandPublish            func(context.Context, ncall.CallContext, ncall.CallReq, DemandPublishReq) (ncall.CallResp, error)

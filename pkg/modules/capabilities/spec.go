@@ -13,8 +13,8 @@ const (
 func Spec() caps.ModuleSpec {
 	return caps.ModuleSpec{
 		InternalAbility: InternalAbilityID,
-		Routes: []string{
-			ncall.RouteNodeV1CapabilitiesShow,
+		Protos: []string{
+			string(ncall.ProtoCapabilitiesShow),
 		},
 	}
 }
