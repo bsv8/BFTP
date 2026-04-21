@@ -8,8 +8,29 @@ import (
 )
 
 type PublicCapability struct {
-	ID      string
-	Version uint32
+	ID         string
+	Version    uint32
+	ProtocolID string
+}
+
+// BuildShowBody 根据 bundle 中自动汇总出的 public capability 生成标准返回体。
+// 硬切说明：ProtocolID 字段用于输出完整协议 ID，便于调用方直接使用 protocol.ID 直连。
+func BuildShowBody(nodePubkeyHex string, items []PublicCapability) ncall.CapabilitiesShowBody {
+	body := ncall.CapabilitiesShowBody{
+		NodePubkeyHex: strings.ToLower(strings.TrimSpace(nodePubkeyHex)),
+		Capabilities:  make([]*ncall.CapabilityItem, 0, len(items)),
+	}
+	for _, item := range items {
+		if strings.TrimSpace(item.ID) == "" {
+			continue
+		}
+		body.Capabilities = append(body.Capabilities, &ncall.CapabilityItem{
+			ID:         strings.TrimSpace(item.ID),
+			Version:    item.Version,
+			ProtocolID: strings.TrimSpace(item.ProtocolID),
+		})
+	}
+	return body
 }
 
 // ModuleSpec 描述一个模块在角色装配时占用的公开合同面。
@@ -20,11 +41,13 @@ type PublicCapability struct {
 // - 独立 pproto proto
 // 不重新引入旧 capability 大包里的“完整对象模型”。
 type ModuleSpec struct {
-	InternalAbility  string
-	PublicCapability *PublicCapability
-	Routes           []string
-	Protos           []string
-	HTTPPaths        []string
+	InternalAbility string
+	// Capabilities 每个元素对应一条独立 protocol.ID 能力宣誓。
+	// 硬切说明：从单条 PublicCapability 改为多条款，每条对应一个完整 protocol.ID。
+	Capabilities   []PublicCapability
+	Routes         []string
+	Protos         []string
+	HTTPPaths      []string
 }
 
 type Bundle struct {
@@ -68,14 +91,13 @@ func Assemble(modules ...ModuleSpec) (Bundle, error) {
 		bundle.Modules = append(bundle.Modules, module)
 		bundle.InternalAbilities = append(bundle.InternalAbilities, module.InternalAbility)
 
-		if module.PublicCapability != nil {
-			capability := *module.PublicCapability
-			key := capabilityKey(capability)
+		for _, cap := range module.Capabilities {
+			key := capabilityKey(cap)
 			if previous, ok := capabilityOwners[key]; ok {
 				return Bundle{}, fmt.Errorf("public capability conflict: %q declared by %s and %s", key, previous, owner)
 			}
 			capabilityOwners[key] = owner
-			bundle.PublicCapabilities = append(bundle.PublicCapabilities, capability)
+			bundle.PublicCapabilities = append(bundle.PublicCapabilities, cap)
 		}
 
 		for _, route := range module.Routes {
@@ -114,25 +136,9 @@ func MustAssemble(modules ...ModuleSpec) Bundle {
 }
 
 // ShowBody 根据 bundle 中自动汇总出的 public capability 生成标准返回体。
+// 硬切说明：ProtocolID 字段用于输出完整协议 ID，便于调用方直接使用 protocol.ID 直连。
 func (b Bundle) ShowBody(nodePubkeyHex string) ncall.CapabilitiesShowBody {
 	return BuildShowBody(nodePubkeyHex, b.PublicCapabilities)
-}
-
-func BuildShowBody(nodePubkeyHex string, items []PublicCapability) ncall.CapabilitiesShowBody {
-	body := ncall.CapabilitiesShowBody{
-		NodePubkeyHex: strings.ToLower(strings.TrimSpace(nodePubkeyHex)),
-		Capabilities:  make([]*ncall.CapabilityItem, 0, len(items)),
-	}
-	for _, item := range items {
-		if strings.TrimSpace(item.ID) == "" {
-			continue
-		}
-		body.Capabilities = append(body.Capabilities, &ncall.CapabilityItem{
-			ID:      strings.TrimSpace(item.ID),
-			Version: item.Version,
-		})
-	}
-	return body
 }
 
 func normalizeModuleSpec(index int, module ModuleSpec) (ModuleSpec, string, error) {
@@ -156,16 +162,19 @@ func normalizeModuleSpec(index int, module ModuleSpec) (ModuleSpec, string, erro
 		return ModuleSpec{}, "", err
 	}
 	module.HTTPPaths = httpPaths
-	if module.PublicCapability != nil {
-		capability := PublicCapability{
-			ID:      strings.TrimSpace(module.PublicCapability.ID),
-			Version: module.PublicCapability.Version,
+	normalizedCaps := make([]PublicCapability, 0, len(module.Capabilities))
+	for i, cap := range module.Capabilities {
+		cap.ID = strings.TrimSpace(cap.ID)
+		cap.ProtocolID = strings.TrimSpace(cap.ProtocolID)
+		if cap.ID == "" {
+			return ModuleSpec{}, "", fmt.Errorf("%s capability #%d id required", owner, i+1)
 		}
-		if capability.ID == "" {
-			return ModuleSpec{}, "", fmt.Errorf("%s public capability id required", owner)
+		if cap.ProtocolID == "" {
+			return ModuleSpec{}, "", fmt.Errorf("%s capability #%d protocol_id required", owner, i+1)
 		}
-		module.PublicCapability = &capability
+		normalizedCaps = append(normalizedCaps, cap)
 	}
+	module.Capabilities = normalizedCaps
 	return module, owner, nil
 }
 
@@ -190,5 +199,5 @@ func normalizeStringList(owner string, kind string, items []string) ([]string, e
 }
 
 func capabilityKey(capability PublicCapability) string {
-	return fmt.Sprintf("%s@%d", capability.ID, capability.Version)
+	return fmt.Sprintf("%s@%d:%s", capability.ID, capability.Version, capability.ProtocolID)
 }
