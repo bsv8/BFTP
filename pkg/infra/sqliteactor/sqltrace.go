@@ -77,17 +77,13 @@ func DoTrace(ctx context.Context, a *Actor, scope TraceScope, fn func(*sql.DB) e
 	if fn == nil {
 		return fmt.Errorf("sqlite actor do func is nil")
 	}
-	_, err := a.call(ctx, func(db *sql.DB) (any, error) {
+	return a.Read(ctx, func(db *sql.DB) error {
 		var runErr error
 		WithTraceScope(scope, func() {
 			runErr = fn(db)
 		})
-		if runErr != nil {
-			return nil, runErr
-		}
-		return struct{}{}, nil
+		return runErr
 	})
-	return err
 }
 
 func TxTrace(ctx context.Context, a *Actor, scope TraceScope, fn func(*sql.Tx) error) error {
@@ -97,27 +93,13 @@ func TxTrace(ctx context.Context, a *Actor, scope TraceScope, fn func(*sql.Tx) e
 	if fn == nil {
 		return fmt.Errorf("sqlite actor tx func is nil")
 	}
-	_, err := a.call(ctx, func(db *sql.DB) (any, error) {
+	return a.WriteTx(ctx, func(tx *sql.Tx) error {
 		var runErr error
 		WithTraceScope(scope, func() {
-			tx, beginErr := db.BeginTx(ctx, nil)
-			if beginErr != nil {
-				runErr = beginErr
-				return
-			}
-			defer func() { _ = tx.Rollback() }()
 			runErr = fn(tx)
-			if runErr != nil {
-				return
-			}
-			runErr = tx.Commit()
 		})
-		if runErr != nil {
-			return nil, runErr
-		}
-		return struct{}{}, nil
+		return runErr
 	})
-	return err
 }
 
 func DoValueTrace[T any](ctx context.Context, a *Actor, scope TraceScope, fn func(*sql.DB) (T, error)) (T, error) {
@@ -128,23 +110,16 @@ func DoValueTrace[T any](ctx context.Context, a *Actor, scope TraceScope, fn fun
 	if fn == nil {
 		return zero, fmt.Errorf("sqlite actor value func is nil")
 	}
-	result, err := a.call(ctx, func(db *sql.DB) (any, error) {
-		var value T
-		var runErr error
+	var value T
+	var runErr error
+	err := a.Read(ctx, func(db *sql.DB) error {
 		WithTraceScope(scope, func() {
 			value, runErr = fn(db)
 		})
-		if runErr != nil {
-			return nil, runErr
-		}
-		return value, nil
+		return runErr
 	})
 	if err != nil {
 		return zero, err
-	}
-	value, ok := result.(T)
-	if !ok {
-		return zero, fmt.Errorf("sqlite actor result type mismatch")
 	}
 	return value, nil
 }
@@ -157,33 +132,16 @@ func TxValueTrace[T any](ctx context.Context, a *Actor, scope TraceScope, fn fun
 	if fn == nil {
 		return zero, fmt.Errorf("sqlite actor tx value func is nil")
 	}
-	result, err := a.call(ctx, func(db *sql.DB) (any, error) {
-		var value T
-		var runErr error
+	var value T
+	var runErr error
+	err := a.WriteTx(ctx, func(tx *sql.Tx) error {
 		WithTraceScope(scope, func() {
-			tx, beginErr := db.BeginTx(ctx, nil)
-			if beginErr != nil {
-				runErr = beginErr
-				return
-			}
-			defer func() { _ = tx.Rollback() }()
 			value, runErr = fn(tx)
-			if runErr != nil {
-				return
-			}
-			runErr = tx.Commit()
 		})
-		if runErr != nil {
-			return nil, runErr
-		}
-		return value, nil
+		return runErr
 	})
 	if err != nil {
 		return zero, err
-	}
-	value, ok := result.(T)
-	if !ok {
-		return zero, fmt.Errorf("sqlite actor tx result type mismatch")
 	}
 	return value, nil
 }
