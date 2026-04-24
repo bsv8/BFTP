@@ -57,6 +57,10 @@ func Open(path string, debug bool) (*Opened, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("enable foreign_keys pragma: %w", err)
+	}
 
 	readOnlyDSN := appendQueryValue("file:"+path, "mode", "ro")
 	readOnlyDSN = appendQueryValue(readOnlyDSN, "_fk", "1")
@@ -72,6 +76,11 @@ func Open(path string, debug bool) (*Opened, error) {
 		_ = db.Close()
 		_ = readOnlyDB.Close()
 		return nil, err
+	}
+	if _, err := readOnlyDB.Exec("PRAGMA foreign_keys=ON"); err != nil {
+		_ = db.Close()
+		_ = readOnlyDB.Close()
+		return nil, fmt.Errorf("enable foreign_keys pragma on ro db: %w", err)
 	}
 
 	actor, err := New(db, readOnlyDB)
